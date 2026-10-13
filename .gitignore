@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Virtual environment
+.venv/
+
+# Database (dibuat otomatis oleh aplikasi)
+data/
+
+# libmpv (file biner besar, unduh sendiri, lihat README)
+libmpv-2.dll
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+.DS_Store
