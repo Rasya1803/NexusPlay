@@ -54,6 +54,8 @@ class Player(QObject):
     media_loaded = Signal(str)        # path file
     error_occurred = Signal(str)      # pesan error
     tracks_changed = Signal(list)     # list of dict, lihat _read_tracks()
+    volume_changed = Signal(int)      # level 0-100
+    mute_changed = Signal(bool)       # True jika dibisukan
 
     def __init__(self, wid: int | None = None, parent: QObject | None = None) -> None:
         """Buat pemutar.
@@ -164,6 +166,24 @@ class Player(QObject):
         """Atur volume (0–100)."""
         clamped = max(0, min(100, level))
         self._mpv.volume = clamped
+        self.volume_changed.emit(clamped)
+
+    def toggle_mute(self) -> None:
+        """Bisu ↔ suara."""
+        try:
+            new_mute = not bool(self._mpv.mute)
+            self._mpv.mute = new_mute
+            self.mute_changed.emit(new_mute)
+        except Exception:
+            pass
+
+    @property
+    def is_muted(self) -> bool:
+        """Apakah audio sedang dibisukan."""
+        try:
+            return bool(self._mpv.mute)
+        except Exception:
+            return False
 
     # ── Trek audio & subtitle (FR-6) ───────────────────────────
 

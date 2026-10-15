@@ -1,37 +1,28 @@
 """NexusPlay — Jendela utama aplikasi.
 
-Kelas `MainWindow` adalah jendela utama (QMainWindow) yang menjadi
-wadah semua tampilan: sidebar, area konten, bar pemutar bawah, dll.
+Kelas `MainWindow` (QMainWindow) merangkai seluruh antarmuka aplikasi:
+- Sidebar navigasi di kiri (Musik, Album, Artis, Video, Folder Library)
+- Area konten utama di tengah (QStackedWidget berisi masing-masing View)
+- Layar pemutar video tertanam (VideoWidget) yang otomatis aktif saat video diputar
+- Bar pemutar bawah (PlayerBar) yang selalu terlihat
+- Integrasi pemindai library latar belakang (QThread) dan database SQLite
 
-Untuk M2, jendela ini berisi:
-- layar video (VideoWidget) di atas,
-- panel kontrol di bawah: Buka File, Play/Pause, Stop, Fullscreen,
-  pilih trek audio/subtitle, muat subtitle, slider posisi & volume,
-- fullscreen dengan F / Esc / klik ganda; di mode fullscreen panel
-  kontrol bersembunyi setelah 3 detik mouse diam (FR-11).
-Untuk M3 ditambah baris library SEMENTARA: Tambah Folder, Pindai Ulang,
-progress bar, dan jumlah lagu/video.
-Kerangka UI lengkap dibuat di M4.
-
-Aturan arsitektur (PRD 7.3): jendela ini TIDAK memanggil mpv atau SQL
-langsung. Semua lewat objek `Player`, `LibraryScanner`, dan fungsi di
-`repositories.py`.
+Aturan arsitektur (PRD 7.3):
+- UI tidak memanggil SQL atau mpv secara langsung.
+- Semua interaksi lewat objek Player, LibraryScanner, dan fungsi repositories.py.
 """
 
 from pathlib import Path
-
 from PySide6.QtCore import QPoint, Qt, QTimer
 from PySide6.QtGui import QCursor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QComboBox,
     QFileDialog,
     QHBoxLayout,
     QLabel,
     QMainWindow,
     QMessageBox,
-    QProgressBar,
     QPushButton,
-    QSlider,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -40,32 +31,10 @@ from nexusplay.core.player import Player
 from nexusplay.db import repositories as repo
 from nexusplay.db.connection import open_database
 from nexusplay.library.scanner import LibraryScanner, ScanResult
-from nexusplay.ui.widgets.video_widget import VideoWidget
+from nexusplay.ui.views import AlbumView, ArtistView, FoldersView, MusicView, VideoView
+from nexusplay.ui.widgets import PlayerBar, Sidebar, VideoWidget
 
-# Format yang didukung (PRD FR-1 dan FR-2)
-AUDIO_EXT = "*.mp3 *.flac *.m4a *.aac *.ogg *.opus *.wav"
-VIDEO_EXT = "*.mp4 *.mkv *.avi *.webm *.mov"
-MEDIA_FILTER = (
-    f"Semua media ({AUDIO_EXT} {VIDEO_EXT});;"
-    f"Audio ({AUDIO_EXT});;"
-    f"Video ({VIDEO_EXT});;"
-    "Semua file (*.*)"
-)
-SUBTITLE_FILTER = "Subtitle (*.srt *.ass);;Semua file (*.*)"
-
-CONTROLS_HIDE_MS = 3000   # kontrol hilang setelah 3 detik diam (PRD 8.1)
-
-
-def format_ms(ms: int) -> str:
-    """Ubah milidetik jadi teks 'm:ss'. Contoh: 83000 -> '1:23'."""
-    total_seconds = max(0, ms) // 1000
-    minutes, seconds = divmod(total_seconds, 60)
-    return f"{minutes}:{seconds:02d}"
-
-
-def format_count(n: int) -> str:
-    """Angka dengan titik ribuan gaya Indonesia: 1234 -> '1.234'."""
-    return f"{n:,}".replace(",", ".")
+CONTROLS_HIDE_MS = 3000   # Durasi auto-hide bar pemutar saat fullscreen video (PRD 8.1)
 
 
 class MainWindow(QMainWindow):
@@ -74,36 +43,27 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
 
-        # ── Properti jendela ────────────────────────────────
         self.setWindowTitle("NexusPlay")
         self.resize(1200, 800)
-        self.setMinimumSize(800, 500)
+        self.setMinimumSize(900, 560)
 
-        # True selama pengguna sedang menyeret slider posisi,
-        # supaya update dari player tidak "melawan" tarikan mouse.
-        self._seeking = False
-
-        # Untuk kembali ke ukuran semula setelah keluar fullscreen
         self._was_maximized = False
+        self._last_active_page = "music"
 
-        # Layar video harus dibuat DULU, karena nomor jendelanya
-        # dibutuhkan saat membuat Player.
-        self.video_widget = VideoWidget()
-
-        # ── Mesin pemutar ───────────────────────────────────
-        self.player = Player(wid=self.video_widget.window_id(), parent=self)
-
-        # ── Database & pemindai (M3) ──────────────────────
-        # Koneksi ini khusus thread UI. Pemindai membuka koneksinya sendiri.
+        # ── Database & Komponen Utama ──────────────────────────
         self.db = open_database()
         self.scanner = LibraryScanner(self)
+
+        # Layar video (mpv butuh window_id native saat inisialisasi)
+        self.video_widget = VideoWidget()
+        self.player = Player(wid=self.video_widget.window_id(), parent=self)
 
         self._build_ui()
         self._build_fullscreen_helpers()
         self._connect_signals()
-        self._refresh_library_stats()
+        self._load_library_data()
 
-    # ── Membangun tampilan ─────────────────────────────────────
+    # ── Membangun Tata Letak ───────────────────────────────────
 
     def _build_ui(self) -> None:
         central = QWidget()
@@ -113,354 +73,314 @@ class MainWindow(QMainWindow):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # Layar video mengambil semua ruang sisa (stretch = 1)
-        root.addWidget(self.video_widget, 1)
+        # ── Bagian Atas: Sidebar + Content Stack ───────────────
+        body_layout = QHBoxLayout()
+        body_layout.setContentsMargins(0, 0, 0, 0)
+        body_layout.setSpacing(0)
 
-        # ── Panel kontrol ───────────────────────────────────
-        # Dibungkus satu QWidget supaya bisa disembunyikan sekaligus.
-        self.controls = QWidget()
-        self.controls.setStyleSheet("background-color: #151922;")
-        panel = QVBoxLayout(self.controls)
-        panel.setContentsMargins(16, 12, 16, 12)
-        panel.setSpacing(8)
+        # Sidebar kiri
+        self.sidebar = Sidebar(self)
+        body_layout.addWidget(self.sidebar)
 
-        # ── Baris library (SEMENTARA, diganti sidebar di M4) ───
-        self.add_folder_button = QPushButton("＋ Tambah Folder")
-        self.rescan_button = QPushButton("↻ Pindai Ulang")
-        self.scan_progress = QProgressBar()
-        self.scan_progress.setFixedWidth(220)
-        self.scan_progress.setTextVisible(False)
-        self.scan_progress.hide()           # hanya tampil saat memindai
-        self.library_label = QLabel()
-        self.library_label.setStyleSheet("color: #8B93A7;")
+        # Content stack tengah
+        self.content_stack = QStackedWidget(self)
 
-        library_row = QHBoxLayout()
-        library_row.addWidget(self.add_folder_button)
-        library_row.addWidget(self.rescan_button)
-        library_row.addWidget(self.scan_progress)
-        library_row.addWidget(self.library_label, 1)
-        panel.addLayout(library_row)
+        # 0: Musik View
+        self.music_view = MusicView(self)
+        self.content_stack.addWidget(self.music_view)
 
-        # Nama file yang sedang diputar
-        self.track_label = QLabel("Belum ada media. Klik \"Buka File\" untuk mulai.")
-        self.track_label.setStyleSheet("font-size: 15px; color: #8B93A7;")
+        # 1: Album View
+        self.album_view = AlbumView(self)
+        self.content_stack.addWidget(self.album_view)
 
-        # Baris posisi: 0:00 [=====o-----] 3:45
-        self.position_label = QLabel("0:00")
-        self.duration_label = QLabel("0:00")
-        self.seek_slider = QSlider(Qt.Orientation.Horizontal)
-        self.seek_slider.setRange(0, 0)
+        # 2: Artis View
+        self.artist_view = ArtistView(self)
+        self.content_stack.addWidget(self.artist_view)
 
-        seek_row = QHBoxLayout()
-        seek_row.addWidget(self.position_label)
-        seek_row.addWidget(self.seek_slider, 1)
-        seek_row.addWidget(self.duration_label)
+        # 3: Video View
+        self.video_view = VideoView(self)
+        self.content_stack.addWidget(self.video_view)
 
-        # Baris tombol
-        self.open_button = QPushButton("Buka File")
-        self.play_button = QPushButton("Play")
-        self.stop_button = QPushButton("Stop")
-        self.fullscreen_button = QPushButton("Fullscreen (F)")
-        self.subtitle_button = QPushButton("Muat Subtitle…")
-        self.play_button.setEnabled(False)
-        self.stop_button.setEnabled(False)
+        # 4: Folder Library View
+        self.folders_view = FoldersView(self)
+        self.content_stack.addWidget(self.folders_view)
 
-        # Pilihan trek
-        self.audio_combo = QComboBox()
-        self.audio_combo.setMinimumWidth(140)
-        self.audio_combo.setEnabled(False)
-        self.subtitle_combo = QComboBox()
-        self.subtitle_combo.setMinimumWidth(160)
-        self.subtitle_combo.setEnabled(False)
+        # 5: Video Player View (Layar Video Tertanam)
+        self.video_container = QWidget()
+        video_layout = QVBoxLayout(self.video_container)
+        video_layout.setContentsMargins(0, 0, 0, 0)
+        video_layout.setSpacing(0)
 
-        # Volume
-        self.volume_slider = QSlider(Qt.Orientation.Horizontal)
-        self.volume_slider.setRange(0, 100)
-        self.volume_slider.setValue(self.player.volume)
-        self.volume_slider.setFixedWidth(120)
-        self.volume_label = QLabel(f"Vol {self.player.volume}")
+        # Bar atas video (Kembali ke library)
+        self.video_top_bar = QWidget()
+        self.video_top_bar.setStyleSheet("background-color: #0B0D12; border-bottom: 1px solid #1D2230;")
+        top_bar_layout = QHBoxLayout(self.video_top_bar)
+        top_bar_layout.setContentsMargins(16, 8, 16, 8)
 
-        buttons = QHBoxLayout()
-        buttons.addWidget(self.open_button)
-        buttons.addWidget(self.play_button)
-        buttons.addWidget(self.stop_button)
-        buttons.addSpacing(16)
-        buttons.addWidget(QLabel("Audio:"))
-        buttons.addWidget(self.audio_combo)
-        buttons.addWidget(QLabel("Subtitle:"))
-        buttons.addWidget(self.subtitle_combo)
-        buttons.addWidget(self.subtitle_button)
-        buttons.addStretch()
-        buttons.addWidget(self.volume_label)
-        buttons.addWidget(self.volume_slider)
-        buttons.addWidget(self.fullscreen_button)
+        self.back_to_library_btn = QPushButton("← Kembali ke Daftar Video")
+        self.back_to_library_btn.setStyleSheet("""
+            QPushButton {
+                background: transparent;
+                color: #8B93A7;
+                border: none;
+                font-size: 13px;
+                font-weight: 500;
+            }
+            QPushButton:hover {
+                color: #FFFFFF;
+            }
+        """)
+        self.back_to_library_btn.clicked.connect(self._exit_video_view)
 
-        panel.addWidget(self.track_label)
-        panel.addLayout(seek_row)
-        panel.addLayout(buttons)
+        top_bar_layout.addWidget(self.back_to_library_btn)
+        top_bar_layout.addStretch()
 
-        root.addWidget(self.controls)
+        video_layout.addWidget(self.video_top_bar)
+        video_layout.addWidget(self.video_widget, 1)
+
+        self.content_stack.addWidget(self.video_container)
+
+        body_layout.addWidget(self.content_stack, 1)
+        root.addLayout(body_layout, 1)
+
+        # ── Bagian Bawah: Bar Pemutar ──────────────────────────
+        self.player_bar = PlayerBar(self.player, self)
+        root.addWidget(self.player_bar)
+
+    # ── Fullscreen & Kontrol Otomatis ──────────────────────────
 
     def _build_fullscreen_helpers(self) -> None:
-        # Pintasan F dan Esc. QShortcut tetap bekerja walau fokus
-        # keyboard sedang ada di tombol atau slider.
+        # Pintasan F dan Esc (PRD bagian 9)
         QShortcut(QKeySequence(Qt.Key.Key_F), self, self.toggle_fullscreen)
         QShortcut(QKeySequence(Qt.Key.Key_Escape), self, self.exit_fullscreen)
+        QShortcut(QKeySequence(Qt.Key.Key_Space), self, self.player.toggle_pause)
 
-        # Timer sekali jalan: setelah 3 detik diam, sembunyikan kontrol.
+        # Timer auto-hide player bar di mode fullscreen
         self._hide_timer = QTimer(self)
         self._hide_timer.setSingleShot(True)
         self._hide_timer.setInterval(CONTROLS_HIDE_MS)
-        self._hide_timer.timeout.connect(self._hide_controls)
+        self._hide_timer.timeout.connect(self._hide_fullscreen_controls)
 
-        # Timer berulang: cek apakah posisi mouse berubah.
-        # Kenapa tidak cukup pakai mouseMoveEvent? Karena mpv membuat
-        # jendela sendiri di atas VideoWidget, sehingga event mouse
-        # di area video sering "ditelan" mpv dan tidak sampai ke Qt.
+        # Timer deteksi gerakan mouse
         self._last_cursor_pos = QPoint()
         self._cursor_timer = QTimer(self)
         self._cursor_timer.setInterval(200)
         self._cursor_timer.timeout.connect(self._check_cursor_moved)
 
-    # ── Menghubungkan sinyal ke slot ───────────────────────────
+    # ── Koneksi Sinyal ─────────────────────────────────────────
 
     def _connect_signals(self) -> None:
-        # UI -> Player (pengguna menekan sesuatu)
-        self.open_button.clicked.connect(self._open_file)
-        self.play_button.clicked.connect(self.player.toggle_pause)
-        self.stop_button.clicked.connect(self.player.stop)
-        self.fullscreen_button.clicked.connect(self.toggle_fullscreen)
-        self.subtitle_button.clicked.connect(self._open_subtitle)
-        self.volume_slider.valueChanged.connect(self._on_volume_changed)
-        self.seek_slider.sliderPressed.connect(self._on_seek_start)
-        self.seek_slider.sliderReleased.connect(self._on_seek_end)
-        self.audio_combo.currentIndexChanged.connect(self._on_audio_selected)
-        self.subtitle_combo.currentIndexChanged.connect(self._on_subtitle_selected)
+        # Navigasi Sidebar -> Ganti Halaman
+        self.sidebar.page_changed.connect(self._on_page_changed)
 
-        # Library (M3)
-        self.add_folder_button.clicked.connect(self._add_folder)
-        self.rescan_button.clicked.connect(self._rescan_library)
+        # Aksi Pemutaran Media dari Views
+        self.music_view.media_activated.connect(self._play_audio_track)
+        self.music_view.add_folder_requested.connect(self._go_to_folders_page)
+
+        self.video_view.media_activated.connect(self._play_video_track)
+        self.video_view.add_folder_requested.connect(self._go_to_folders_page)
+
+        # Folders View -> Library Actions
+        self.folders_view.add_folder_requested.connect(self._add_folder)
+        self.folders_view.remove_folder_requested.connect(self._remove_folder)
+        self.folders_view.rescan_requested.connect(self._rescan_library)
+
+        # Scanner -> Folders View & Main Window
         self.scanner.progress.connect(self._on_scan_progress)
         self.scanner.finished.connect(self._on_scan_finished)
         self.scanner.failed.connect(self._on_scan_failed)
 
-        # VideoWidget -> jendela
+        # Video & PlayerBar -> Fullscreen
         self.video_widget.double_clicked.connect(self.toggle_fullscreen)
         self.video_widget.mouse_moved.connect(self._on_user_activity)
+        self.player_bar.fullscreen_requested.connect(self.toggle_fullscreen)
 
-        # Player -> UI (player memberi kabar)
-        self.player.position_changed.connect(self._on_position_changed)
-        self.player.duration_changed.connect(self._on_duration_changed)
-        self.player.state_changed.connect(self._on_state_changed)
-        self.player.media_loaded.connect(self._on_media_loaded)
-        self.player.tracks_changed.connect(self._on_tracks_changed)
+    # ── Pembacaan Data dari Database (PRD 7.3) ─────────────────
 
-    # ── Slot: aksi pengguna ────────────────────────────────────
+    def _load_library_data(self) -> None:
+        """Muat seluruh data library dari SQLite ke dalam masing-masing view."""
+        # 1. Musik
+        audios = [dict(r) for r in repo.list_media(self.db, kind="audio", sort_by="title")]
+        self.music_view.set_tracks(audios)
 
-    def _open_file(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Pilih file media", "", MEDIA_FILTER)
-        if path:  # kosong kalau pengguna menekan Batal
-            self.player.play(path)
+        # 2. Video
+        videos = [dict(r) for r in repo.list_media(self.db, kind="video", sort_by="title")]
+        self.video_view.set_videos(videos)
 
-    def _open_subtitle(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Pilih file subtitle", "", SUBTITLE_FILTER)
-        if path:
-            self.player.load_subtitle(path)
+        # 3. Album
+        albums = [dict(r) for r in repo.list_albums(self.db)]
+        self.album_view.set_albums(albums)
 
-    def _on_volume_changed(self, value: int) -> None:
-        self.player.set_volume(value)
-        self.volume_label.setText(f"Vol {value}")
+        # 4. Artis
+        artists = [dict(r) for r in repo.list_artists(self.db)]
+        self.artist_view.set_artists(artists)
 
-    def _on_seek_start(self) -> None:
-        self._seeking = True
+        # 5. Folder
+        folders = repo.list_library_folders(self.db)
+        self.folders_view.set_folders(folders)
 
-    def _on_seek_end(self) -> None:
-        self._seeking = False
-        self.player.seek(self.seek_slider.value())
+    # ── Slot Navigasi ──────────────────────────────────────────
 
-    def _on_audio_selected(self, index: int) -> None:
-        track_id = self.audio_combo.itemData(index)
-        if track_id is not None:
-            self.player.set_audio_track(track_id)
+    def _on_page_changed(self, page_id: str) -> None:
+        self._last_active_page = page_id
+        page_map = {
+            "music": 0,
+            "albums": 1,
+            "artists": 2,
+            "videos": 3,
+            "folders": 4,
+        }
+        idx = page_map.get(page_id, 0)
+        self.content_stack.setCurrentIndex(idx)
 
-    def _on_subtitle_selected(self, index: int) -> None:
-        if index < 0:
+    def _go_to_folders_page(self) -> None:
+        self.sidebar.select_page("folders")
+
+    def _exit_video_view(self) -> None:
+        """Kembali dari layar video ke daftar video atau halaman sebelumnya."""
+        self.sidebar.select_page(self._last_active_page or "videos")
+
+    # ── Slot Pemutaran Media ───────────────────────────────────
+
+    def _play_audio_track(self, track: dict) -> None:
+        """Putar lagu audio yang dipilih."""
+        path = track.get("path")
+        if not path or not Path(path).exists():
+            QMessageBox.warning(self, "File tidak ditemukan", f"File audio tidak ditemukan di disk:\n{path}")
             return
-        # itemData = id trek, atau None untuk pilihan "Mati"
-        self.player.set_subtitle_track(self.subtitle_combo.itemData(index))
 
-    # ── Slot: kabar dari Player ────────────────────────────────
+        self.player.play(path)
+        self.player_bar.set_media_info(
+            title=track.get("title", ""),
+            artist=track.get("artist", ""),
+            cover_path=track.get("cover_path"),
+        )
 
-    def _on_position_changed(self, ms: int) -> None:
-        if not self._seeking:
-            self.seek_slider.setValue(ms)
-        self.position_label.setText(format_ms(ms))
+    def _play_video_track(self, video: dict) -> None:
+        """Putar video yang dipilih dan beralih ke layar video."""
+        path = video.get("path")
+        if not path or not Path(path).exists():
+            QMessageBox.warning(self, "File tidak ditemukan", f"File video tidak ditemukan di disk:\n{path}")
+            return
 
-    def _on_duration_changed(self, ms: int) -> None:
-        self.seek_slider.setRange(0, ms)
-        self.duration_label.setText(format_ms(ms))
+        self.player.play(path)
+        self.player_bar.set_media_info(
+            title=video.get("title", ""),
+            artist="Video",
+            cover_path=None,
+        )
+        # Beralih ke layar pemutar video (index 5)
+        self.content_stack.setCurrentIndex(5)
 
-    def _on_state_changed(self, state: str) -> None:
-        self.play_button.setText("Pause" if state == "playing" else "Play")
-        self.play_button.setEnabled(state in ("playing", "paused"))
-        self.stop_button.setEnabled(state in ("playing", "paused"))
-        if state in ("stopped", "idle"):
-            self.seek_slider.setValue(0)
-            self.position_label.setText("0:00")
+    # ── Slot Pengelolaan Library & Scanner ─────────────────────
 
-    def _on_media_loaded(self, path: str) -> None:
-        self.track_label.setText(Path(path).name)
+    def _add_folder(self) -> None:
+        folder = QFileDialog.getExistingDirectory(self, "Pilih folder musik/video")
+        if not folder:
+            return
+        folder_norm = repo.add_library_folder(self.db, folder)
+        self.folders_view.set_folders(repo.list_library_folders(self.db))
+        self._start_scan([folder_norm])
 
-    def _on_tracks_changed(self, tracks: list) -> None:
-        """Isi ulang dropdown audio & subtitle dari daftar trek terbaru."""
-        audio = [t for t in tracks if t["type"] == "audio"]
-        subs = [t for t in tracks if t["type"] == "sub"]
+    def _remove_folder(self, folder_path: str) -> None:
+        removed_count = repo.remove_library_folder(self.db, folder_path)
+        self._load_library_data()
+        self.folders_view.set_scan_state(
+            False,
+            f"Folder dihapus dari library ({removed_count} media dibersihkan)."
+        )
 
-        # blockSignals: saat mengisi ulang dropdown, jangan sampai
-        # currentIndexChanged terpanggil dan mengganti trek mpv.
-        self.audio_combo.blockSignals(True)
-        self.audio_combo.clear()
-        for t in audio:
-            self.audio_combo.addItem(t["label"], t["id"])
-            if t["selected"]:
-                self.audio_combo.setCurrentIndex(self.audio_combo.count() - 1)
-        self.audio_combo.setEnabled(len(audio) > 1)
-        self.audio_combo.blockSignals(False)
+    def _rescan_library(self) -> None:
+        folders = repo.list_library_folders(self.db)
+        if not folders:
+            QMessageBox.information(self, "Library Kosong", "Tambahkan folder terlebih dahulu.")
+            return
+        self._start_scan(None)
 
-        self.subtitle_combo.blockSignals(True)
-        self.subtitle_combo.clear()
-        self.subtitle_combo.addItem("Mati", None)
-        for t in subs:
-            self.subtitle_combo.addItem(t["label"], t["id"])
-            if t["selected"]:
-                self.subtitle_combo.setCurrentIndex(self.subtitle_combo.count() - 1)
-        self.subtitle_combo.setEnabled(len(subs) > 0)
-        self.subtitle_combo.blockSignals(False)
+    def _start_scan(self, folders: list[str] | None) -> None:
+        if not self.scanner.start(folders):
+            return
+        self.folders_view.set_scan_state(True, "Mencari file media…", 0, 0)
 
-    # ── Fullscreen & kontrol sembunyi otomatis ─────────────────
+    def _on_scan_progress(self, done: int, total: int, folder: str) -> None:
+        folder_name = Path(folder).name
+        self.folders_view.set_scan_state(
+            True,
+            f"Memindai {folder_name}… ({done}/{total} file)",
+            done,
+            total,
+        )
+
+    def _on_scan_finished(self, result: ScanResult) -> None:
+        msg = f"Selesai: +{result.added} baru, {result.updated} diperbarui, {result.removed} dihapus."
+        if result.errors:
+            msg += f" (⚠ {len(result.errors)} file dilewati)"
+        self.folders_view.set_scan_state(False, msg)
+        self._load_library_data()
+
+    def _on_scan_failed(self, message: str) -> None:
+        self.folders_view.set_scan_state(False, f"Pemindaian gagal: {message}")
+        QMessageBox.warning(self, "Pemindaian Gagal", message)
+
+    # ── Logika Fullscreen ──────────────────────────────────────
 
     def toggle_fullscreen(self) -> None:
+        """Beralih antara mode normal dan fullscreen."""
         if self.isFullScreen():
             self.exit_fullscreen()
         else:
             self._was_maximized = self.isMaximized()
+            self.sidebar.hide()
+            self.video_top_bar.hide()
             self.showFullScreen()
             self._last_cursor_pos = QCursor.pos()
             self._cursor_timer.start()
             self._hide_timer.start()
 
     def exit_fullscreen(self) -> None:
+        """Keluar dari fullscreen kembali ke mode jendela normal."""
         if not self.isFullScreen():
+            # Bila ditekan Esc di layar video non-fullscreen, kembali ke library
+            if self.content_stack.currentIndex() == 5:
+                self._exit_video_view()
             return
+
         self._cursor_timer.stop()
         self._hide_timer.stop()
-        self._show_controls()
+        self.video_widget.unsetCursor()
+        self.sidebar.show()
+        self.video_top_bar.show()
+        self.player_bar.show()
+
         if self._was_maximized:
             self.showMaximized()
         else:
             self.showNormal()
 
+    def _on_user_activity(self) -> None:
+        if not self.isFullScreen():
+            return
+        self.player_bar.show()
+        self.video_widget.unsetCursor()
+        self._hide_timer.start()
+
     def _check_cursor_moved(self) -> None:
-        pos = QCursor.pos()
-        if pos != self._last_cursor_pos:
-            self._last_cursor_pos = pos
+        if not self.isFullScreen():
+            return
+        current = QCursor.pos()
+        if current != self._last_cursor_pos:
+            self._last_cursor_pos = current
             self._on_user_activity()
 
-    def _on_user_activity(self) -> None:
-        """Mouse bergerak: tampilkan kontrol, mulai hitung 3 detik lagi."""
-        if self.isFullScreen():
-            self._show_controls()
-            self._hide_timer.start()   # start() ulang = reset hitungan
-
-    def _hide_controls(self) -> None:
-        # Jangan sembunyikan kalau mouse sedang di atas panel kontrol
-        if self.controls.underMouse():
-            self._hide_timer.start()
+    def _hide_fullscreen_controls(self) -> None:
+        if not self.isFullScreen():
             return
-        self.controls.hide()
+        self.player_bar.hide()
         self.video_widget.setCursor(Qt.CursorShape.BlankCursor)
 
-    def _show_controls(self) -> None:
-        self.controls.show()
-        self.video_widget.unsetCursor()
-
-    # ── Library & pemindaian (M3) ──────────────────────────
-
-    def _add_folder(self) -> None:
-        folder = QFileDialog.getExistingDirectory(self, "Pilih folder musik/video")
-        if not folder:
-            return
-        folder = repo.add_library_folder(self.db, folder)
-        self._start_scan([folder])
-
-    def _rescan_library(self) -> None:
-        if not repo.list_library_folders(self.db):
-            self.library_label.setText("Belum ada folder. Klik \"Tambah Folder\" dulu.")
-            return
-        self._start_scan(None)   # None = semua folder library
-
-    def _start_scan(self, folders: list[str] | None) -> None:
-        if not self.scanner.start(folders):
-            return  # masih ada pemindaian yang berjalan
-        self.add_folder_button.setEnabled(False)
-        self.rescan_button.setEnabled(False)
-        self.scan_progress.setRange(0, 0)   # range 0..0 = animasi "sibuk"
-        self.scan_progress.show()
-        self.library_label.setText("Mencari file…")
-
-    def _on_scan_progress(self, done: int, total: int, folder: str) -> None:
-        # Slot ini berjalan di thread UI, jadi aman menyentuh widget.
-        if total > 0:
-            self.scan_progress.setRange(0, total)
-            self.scan_progress.setValue(done)
-        self.library_label.setText(
-            f"Memindai {Path(folder).name}: {format_count(done)} / {format_count(total)} file"
-        )
-
-    def _on_scan_finished(self, result: ScanResult) -> None:
-        self.scan_progress.hide()
-        self.add_folder_button.setEnabled(True)
-        self.rescan_button.setEnabled(True)
-        self._refresh_library_stats(result)
-
-    def _on_scan_failed(self, message: str) -> None:
-        QMessageBox.warning(self, "Pemindaian gagal", message)
-
-    def _refresh_library_stats(self, result: ScanResult | None = None) -> None:
-        """Tampilkan jumlah lagu/video, plus ringkasan pindai terakhir."""
-        counts = repo.count_media(self.db)
-        if not repo.list_library_folders(self.db):
-            text = "Belum ada musik. Tambah folder untuk mulai."
-        else:
-            text = f"Library: {format_count(counts['audio'])} lagu · {format_count(counts['video'])} video"
-
-        tooltip = ""
-        if result is not None:
-            text += (
-                f"  —  +{result.added} baru, {result.updated} diperbarui, "
-                f"{result.removed} dihapus"
-            )
-            if result.stopped:
-                text += " (dihentikan)"
-            if result.errors:
-                # File rusak ditampilkan sebagai pesan, bukan crash (PRD 6)
-                text += f", ⚠ {len(result.errors)} file dilewati (arahkan mouse ke sini)"
-                tooltip = "\n".join(result.errors[:20])
-                if len(result.errors) > 20:
-                    tooltip += f"\n… dan {len(result.errors) - 20} lainnya"
-            if result.missing_folders:
-                text += f", ⚠ {len(result.missing_folders)} folder tidak ditemukan"
-                tooltip = "\n".join(
-                    ["Folder tidak ditemukan (dilewati, data aman):"] + result.missing_folders
-                    + (["", tooltip] if tooltip else [])
-                )
-        self.library_label.setText(text)
-        self.library_label.setToolTip(tooltip)
-
-    # ── Saat jendela ditutup ───────────────────────────────────
+    # ── Saat Jendela Ditutup ───────────────────────────────────
 
     def closeEvent(self, event) -> None:
-        # Hentikan pemindaian dengan rapi SEBELUM menutup database.
         self.scanner.stop(wait=True)
         self.player.cleanup()
         self.db.close()

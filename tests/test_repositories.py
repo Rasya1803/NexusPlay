@@ -171,3 +171,55 @@ def test_remove_subfolder_keeps_files_of_parent_folder(conn, tmp_path):
 def test_check_constraint_rejects_bad_kind(conn):
     with pytest.raises(sqlite3.IntegrityError):
         repo.upsert_media(conn, make_media("C:\\m\\x.txt", kind="dokumen"))
+
+
+# ── Tes Query UI (M4) ──────────────────────────────────────────
+
+def test_list_media_filtering_and_sorting(conn):
+    ar1 = repo.get_or_create_artist(conn, "Coldplay")
+    ar2 = repo.get_or_create_artist(conn, "Adele")
+    al1 = repo.get_or_create_album(conn, "Parachutes", ar1)
+
+    m1 = repo.upsert_media(conn, make_media("C:\\m\\yellow.mp3", title="Yellow", artist_id=ar1, album_id=al1, track_no=5, kind="audio"))
+    m2 = repo.upsert_media(conn, make_media("C:\\m\\hello.mp3", title="Hello", artist_id=ar2, kind="audio"))
+    m3 = repo.upsert_media(conn, make_media("C:\\m\\video.mp4", title="Concert", artist_id=ar1, kind="video"))
+
+    # Filter audio saja
+    audios = repo.list_media(conn, kind="audio", sort_by="title")
+    assert len(audios) == 2
+    assert [a["title"] for a in audios] == ["Hello", "Yellow"]
+    assert audios[1]["artist"] == "Coldplay"
+    assert audios[1]["album"] == "Parachutes"
+
+    # Filter video saja
+    videos = repo.list_media(conn, kind="video")
+    assert len(videos) == 1
+    assert videos[0]["title"] == "Concert"
+
+    # get_media by ID
+    item = repo.get_media(conn, m1)
+    assert item is not None
+    assert item["title"] == "Yellow"
+    assert item["artist"] == "Coldplay"
+
+
+def test_list_albums_and_artists(conn):
+    ar = repo.get_or_create_artist(conn, "Radiohead")
+    al = repo.get_or_create_album(conn, "OK Computer", ar, year=1997)
+
+    repo.upsert_media(conn, make_media("C:\\m\\airbag.mp3", title="Airbag", artist_id=ar, album_id=al, duration_ms=284000))
+    repo.upsert_media(conn, make_media("C:\\m\\paranoid.mp3", title="Paranoid Android", artist_id=ar, album_id=al, duration_ms=383000))
+
+    albums = repo.list_albums(conn)
+    assert len(albums) == 1
+    assert albums[0]["title"] == "OK Computer"
+    assert albums[0]["artist"] == "Radiohead"
+    assert albums[0]["track_count"] == 2
+    assert albums[0]["total_duration_ms"] == 284000 + 383000
+
+    artists = repo.list_artists(conn)
+    assert len(artists) == 1
+    assert artists[0]["name"] == "Radiohead"
+    assert artists[0]["track_count"] == 2
+    assert artists[0]["album_count"] == 1
+

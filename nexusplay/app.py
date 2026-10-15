@@ -12,6 +12,7 @@ package `nexusplay/`, sedangkan `main.py` hanya titik masuk.
 
 import sys
 
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QApplication
 
 from nexusplay.ui.theme import dark_stylesheet
@@ -23,6 +24,9 @@ def run() -> None:
 
     # 1. Buat QApplication (wajib ada sebelum widget apa pun)
     app = QApplication(sys.argv)
+
+    # Set font dasar aplikasi
+    app.setFont(QFont("Segoe UI", 10))
 
     # 2. Terapkan tema gelap ke seluruh aplikasi
     app.setStyleSheet(dark_stylesheet())

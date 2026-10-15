@@ -228,3 +228,96 @@ def count_media(conn: sqlite3.Connection) -> dict[str, int]:
     for row in conn.execute("SELECT kind, COUNT(*) AS n FROM media GROUP BY kind"):
         counts[row["kind"]] = row["n"]
     return counts
+
+
+# ── Query Pembacaan Data UI (M4) ───────────────────────────────
+
+def list_media(
+    conn: sqlite3.Connection,
+    kind: str | None = None,
+    sort_by: str = "title",
+) -> list[sqlite3.Row]:
+    """Ambil daftar media dengan info artis dan album untuk UI.
+
+    kind: 'audio', 'video', atau None (semua).
+    """
+    sql = """
+        SELECT
+            m.id, m.kind, m.path, m.title, m.track_no, m.genre,
+            m.duration_ms, m.width, m.height, m.file_size,
+            m.is_favorite, m.resume_ms, m.play_count,
+            ar.name AS artist,
+            al.title AS album,
+            al.cover_path AS cover_path
+        FROM media m
+        LEFT JOIN artists ar ON ar.id = m.artist_id
+        LEFT JOIN albums  al ON al.id = m.album_id
+    """
+    params: list = []
+    if kind:
+        sql += " WHERE m.kind = ?"
+        params.append(kind)
+
+    if sort_by == "track_no":
+        sql += " ORDER BY al.title COLLATE NOCASE, m.track_no ASC, m.title COLLATE NOCASE"
+    elif sort_by == "artist":
+        sql += " ORDER BY ar.name COLLATE NOCASE, al.title COLLATE NOCASE, m.track_no ASC, m.title COLLATE NOCASE"
+    else:
+        sql += " ORDER BY m.title COLLATE NOCASE"
+
+    return conn.execute(sql, params).fetchall()
+
+
+def get_media(conn: sqlite3.Connection, media_id: int) -> sqlite3.Row | None:
+    """Ambil satu media berdasarkan id dengan info artis dan album."""
+    sql = """
+        SELECT
+            m.id, m.kind, m.path, m.title, m.track_no, m.genre,
+            m.duration_ms, m.width, m.height, m.file_size,
+            m.is_favorite, m.resume_ms, m.play_count,
+            ar.name AS artist,
+            al.title AS album,
+            al.cover_path AS cover_path
+        FROM media m
+        LEFT JOIN artists ar ON ar.id = m.artist_id
+        LEFT JOIN albums  al ON al.id = m.album_id
+        WHERE m.id = ?
+    """
+    return conn.execute(sql, (media_id,)).fetchone()
+
+
+def list_albums(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """Daftar album beserta nama artis dan jumlah lagu untuk UI."""
+    sql = """
+        SELECT
+            al.id,
+            al.title,
+            al.year,
+            al.cover_path,
+            ar.name AS artist,
+            COUNT(m.id) AS track_count,
+            COALESCE(SUM(m.duration_ms), 0) AS total_duration_ms
+        FROM albums al
+        LEFT JOIN artists ar ON ar.id = al.artist_id
+        LEFT JOIN media m ON m.album_id = al.id
+        GROUP BY al.id
+        ORDER BY al.title COLLATE NOCASE
+    """
+    return conn.execute(sql).fetchall()
+
+
+def list_artists(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """Daftar artis beserta jumlah lagu dan album untuk UI."""
+    sql = """
+        SELECT
+            ar.id,
+            ar.name,
+            COUNT(DISTINCT m.id) AS track_count,
+            COUNT(DISTINCT m.album_id) AS album_count
+        FROM artists ar
+        LEFT JOIN media m ON m.artist_id = ar.id
+        GROUP BY ar.id
+        ORDER BY ar.name COLLATE NOCASE
+    """
+    return conn.execute(sql).fetchall()
+
