@@ -9,10 +9,13 @@ Untuk M2, jendela ini berisi:
   pilih trek audio/subtitle, muat subtitle, slider posisi & volume,
 - fullscreen dengan F / Esc / klik ganda; di mode fullscreen panel
   kontrol bersembunyi setelah 3 detik mouse diam (FR-11).
+Untuk M3 ditambah baris library SEMENTARA: Tambah Folder, Pindai Ulang,
+progress bar, dan jumlah lagu/video.
 Kerangka UI lengkap dibuat di M4.
 
-Aturan arsitektur (PRD 7.3): jendela ini TIDAK memanggil mpv
-langsung. Semua lewat objek `Player`.
+Aturan arsitektur (PRD 7.3): jendela ini TIDAK memanggil mpv atau SQL
+langsung. Semua lewat objek `Player`, `LibraryScanner`, dan fungsi di
+`repositories.py`.
 """
 
 from pathlib import Path
@@ -25,6 +28,8 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMessageBox,
+    QProgressBar,
     QPushButton,
     QSlider,
     QVBoxLayout,
@@ -32,6 +37,9 @@ from PySide6.QtWidgets import (
 )
 
 from nexusplay.core.player import Player
+from nexusplay.db import repositories as repo
+from nexusplay.db.connection import open_database
+from nexusplay.library.scanner import LibraryScanner, ScanResult
 from nexusplay.ui.widgets.video_widget import VideoWidget
 
 # Format yang didukung (PRD FR-1 dan FR-2)
@@ -53,6 +61,11 @@ def format_ms(ms: int) -> str:
     total_seconds = max(0, ms) // 1000
     minutes, seconds = divmod(total_seconds, 60)
     return f"{minutes}:{seconds:02d}"
+
+
+def format_count(n: int) -> str:
+    """Angka dengan titik ribuan gaya Indonesia: 1234 -> '1.234'."""
+    return f"{n:,}".replace(",", ".")
 
 
 class MainWindow(QMainWindow):
@@ -80,9 +93,15 @@ class MainWindow(QMainWindow):
         # ── Mesin pemutar ───────────────────────────────────
         self.player = Player(wid=self.video_widget.window_id(), parent=self)
 
+        # ── Database & pemindai (M3) ──────────────────────
+        # Koneksi ini khusus thread UI. Pemindai membuka koneksinya sendiri.
+        self.db = open_database()
+        self.scanner = LibraryScanner(self)
+
         self._build_ui()
         self._build_fullscreen_helpers()
         self._connect_signals()
+        self._refresh_library_stats()
 
     # ── Membangun tampilan ─────────────────────────────────────
 
@@ -104,6 +123,23 @@ class MainWindow(QMainWindow):
         panel = QVBoxLayout(self.controls)
         panel.setContentsMargins(16, 12, 16, 12)
         panel.setSpacing(8)
+
+        # ── Baris library (SEMENTARA, diganti sidebar di M4) ───
+        self.add_folder_button = QPushButton("＋ Tambah Folder")
+        self.rescan_button = QPushButton("↻ Pindai Ulang")
+        self.scan_progress = QProgressBar()
+        self.scan_progress.setFixedWidth(220)
+        self.scan_progress.setTextVisible(False)
+        self.scan_progress.hide()           # hanya tampil saat memindai
+        self.library_label = QLabel()
+        self.library_label.setStyleSheet("color: #8B93A7;")
+
+        library_row = QHBoxLayout()
+        library_row.addWidget(self.add_folder_button)
+        library_row.addWidget(self.rescan_button)
+        library_row.addWidget(self.scan_progress)
+        library_row.addWidget(self.library_label, 1)
+        panel.addLayout(library_row)
 
         # Nama file yang sedang diputar
         self.track_label = QLabel("Belum ada media. Klik \"Buka File\" untuk mulai.")
@@ -200,6 +236,13 @@ class MainWindow(QMainWindow):
         self.seek_slider.sliderReleased.connect(self._on_seek_end)
         self.audio_combo.currentIndexChanged.connect(self._on_audio_selected)
         self.subtitle_combo.currentIndexChanged.connect(self._on_subtitle_selected)
+
+        # Library (M3)
+        self.add_folder_button.clicked.connect(self._add_folder)
+        self.rescan_button.clicked.connect(self._rescan_library)
+        self.scanner.progress.connect(self._on_scan_progress)
+        self.scanner.finished.connect(self._on_scan_finished)
+        self.scanner.failed.connect(self._on_scan_failed)
 
         # VideoWidget -> jendela
         self.video_widget.double_clicked.connect(self.toggle_fullscreen)
@@ -341,8 +384,84 @@ class MainWindow(QMainWindow):
         self.controls.show()
         self.video_widget.unsetCursor()
 
+    # ── Library & pemindaian (M3) ──────────────────────────
+
+    def _add_folder(self) -> None:
+        folder = QFileDialog.getExistingDirectory(self, "Pilih folder musik/video")
+        if not folder:
+            return
+        folder = repo.add_library_folder(self.db, folder)
+        self._start_scan([folder])
+
+    def _rescan_library(self) -> None:
+        if not repo.list_library_folders(self.db):
+            self.library_label.setText("Belum ada folder. Klik \"Tambah Folder\" dulu.")
+            return
+        self._start_scan(None)   # None = semua folder library
+
+    def _start_scan(self, folders: list[str] | None) -> None:
+        if not self.scanner.start(folders):
+            return  # masih ada pemindaian yang berjalan
+        self.add_folder_button.setEnabled(False)
+        self.rescan_button.setEnabled(False)
+        self.scan_progress.setRange(0, 0)   # range 0..0 = animasi "sibuk"
+        self.scan_progress.show()
+        self.library_label.setText("Mencari file…")
+
+    def _on_scan_progress(self, done: int, total: int, folder: str) -> None:
+        # Slot ini berjalan di thread UI, jadi aman menyentuh widget.
+        if total > 0:
+            self.scan_progress.setRange(0, total)
+            self.scan_progress.setValue(done)
+        self.library_label.setText(
+            f"Memindai {Path(folder).name}: {format_count(done)} / {format_count(total)} file"
+        )
+
+    def _on_scan_finished(self, result: ScanResult) -> None:
+        self.scan_progress.hide()
+        self.add_folder_button.setEnabled(True)
+        self.rescan_button.setEnabled(True)
+        self._refresh_library_stats(result)
+
+    def _on_scan_failed(self, message: str) -> None:
+        QMessageBox.warning(self, "Pemindaian gagal", message)
+
+    def _refresh_library_stats(self, result: ScanResult | None = None) -> None:
+        """Tampilkan jumlah lagu/video, plus ringkasan pindai terakhir."""
+        counts = repo.count_media(self.db)
+        if not repo.list_library_folders(self.db):
+            text = "Belum ada musik. Tambah folder untuk mulai."
+        else:
+            text = f"Library: {format_count(counts['audio'])} lagu · {format_count(counts['video'])} video"
+
+        tooltip = ""
+        if result is not None:
+            text += (
+                f"  —  +{result.added} baru, {result.updated} diperbarui, "
+                f"{result.removed} dihapus"
+            )
+            if result.stopped:
+                text += " (dihentikan)"
+            if result.errors:
+                # File rusak ditampilkan sebagai pesan, bukan crash (PRD 6)
+                text += f", ⚠ {len(result.errors)} file dilewati (arahkan mouse ke sini)"
+                tooltip = "\n".join(result.errors[:20])
+                if len(result.errors) > 20:
+                    tooltip += f"\n… dan {len(result.errors) - 20} lainnya"
+            if result.missing_folders:
+                text += f", ⚠ {len(result.missing_folders)} folder tidak ditemukan"
+                tooltip = "\n".join(
+                    ["Folder tidak ditemukan (dilewati, data aman):"] + result.missing_folders
+                    + (["", tooltip] if tooltip else [])
+                )
+        self.library_label.setText(text)
+        self.library_label.setToolTip(tooltip)
+
     # ── Saat jendela ditutup ───────────────────────────────────
 
     def closeEvent(self, event) -> None:
+        # Hentikan pemindaian dengan rapi SEBELUM menutup database.
+        self.scanner.stop(wait=True)
         self.player.cleanup()
+        self.db.close()
         super().closeEvent(event)
