@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QMenu,
     QPushButton,
     QStackedWidget,
     QTableWidget,
@@ -32,12 +33,17 @@ from nexusplay.ui.widgets.player_bar import format_ms
 class MusicView(QWidget):
     """View daftar lagu musik."""
 
-    media_activated = Signal(dict)
+    play_tracks_requested = Signal(list, int)     # (tracks, start_index)
+    play_next_requested = Signal(dict)            # (track)
+    append_queue_requested = Signal(dict)         # (track)
+    add_to_playlist_requested = Signal(int, dict) # (playlist_id, track)
+    new_playlist_with_track = Signal(dict)        # (track)
     add_folder_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._tracks: list[dict] = []
+        self._playlists: list[dict] = []
 
         self._build_ui()
 
@@ -118,6 +124,8 @@ class MusicView(QWidget):
             }
         """)
 
+        self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self._show_context_menu)
         self.table.cellDoubleClicked.connect(self._on_cell_double_clicked)
         self.stack.addWidget(self.table)
 
@@ -210,6 +218,65 @@ class MusicView(QWidget):
             self.table.setItem(row, 4, item_dur)
             self.table.setRowHeight(row, 38)
 
+    def set_playlists(self, playlists: list[dict]) -> None:
+        """Simpan daftar playlist aktif untuk pilihan menu klik kanan."""
+        self._playlists = playlists
+
     def _on_cell_double_clicked(self, row: int, _col: int) -> None:
         if 0 <= row < len(self._tracks):
-            self.media_activated.emit(self._tracks[row])
+            # Putar lagu yang diklik dan muat seluruh daftar ke antrean (seperti Spotify)
+            self.play_tracks_requested.emit(self._tracks, row)
+
+    def _show_context_menu(self, pos) -> None:
+        row = self.table.rowAt(pos.y())
+        if row < 0 or row >= len(self._tracks):
+            return
+
+        track = self._tracks[row]
+        menu = QMenu(self.window())
+        menu.setStyleSheet("""
+            QMenu {
+                background-color: #1D2230;
+                color: #E8EAF0;
+                border: 1px solid #262C3B;
+                border-radius: 6px;
+                padding: 4px;
+            }
+            QMenu::item {
+                padding: 6px 14px;
+                border-radius: 4px;
+            }
+            QMenu::item:selected {
+                background-color: #7C5CFF;
+                color: #FFFFFF;
+            }
+        """)
+
+        action_play = menu.addAction("▶  Putar Lagu Ini")
+        action_play_next = menu.addAction("⏭  Putar Berikutnya")
+        action_append = menu.addAction("➕  Tambah ke Antrean")
+
+        menu.addSeparator()
+        playlist_submenu = menu.addMenu("≡  Tambahkan ke Playlist")
+        playlist_submenu.setStyleSheet(menu.styleSheet())
+
+        if self._playlists:
+            for pl in self._playlists:
+                action_pl = playlist_submenu.addAction(f"≡  {pl['name']}")
+                action_pl.setData(pl["id"])
+            playlist_submenu.addSeparator()
+
+        action_new_pl = playlist_submenu.addAction("＋  Buat Playlist Baru…")
+
+        selected = menu.exec(self.table.mapToGlobal(pos))
+        if selected == action_play:
+            self.play_tracks_requested.emit(self._tracks, row)
+        elif selected == action_play_next:
+            self.play_next_requested.emit(track)
+        elif selected == action_append:
+            self.append_queue_requested.emit(track)
+        elif selected == action_new_pl:
+            self.new_playlist_with_track.emit(track)
+        elif selected and selected.data() is not None:
+            pl_id = selected.data()
+            self.add_to_playlist_requested.emit(pl_id, track)

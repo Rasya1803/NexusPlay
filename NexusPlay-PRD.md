@@ -1,14 +1,14 @@
 # PRD: NexusPlay — Media Player Musik & Video dengan Database
 
-| | |
-|---|---|
-| **Versi** | 0.1 (draft) |
-| **Pemilik** | Pais |
-| **Tanggal** | 12 Oktober 2026 |
-| **Platform target** | Desktop (Windows 10/11 dulu; Linux/macOS menyusul) |
-| **Bahasa & stack** | Python 3.12+, PySide6 (Qt 6), libmpv, SQLite |
-| **Dev environment** | Antigravity (agent-assisted IDE) |
-| **Tujuan utama** | Membuat media player pribadi yang modern, sambil belajar Python lewat projek nyata |
+|                     |                                                                                    |
+| ------------------- | ---------------------------------------------------------------------------------- |
+| **Versi**           | 0.1 (draft)                                                                        |
+| **Pemilik**         | Pais                                                                               |
+| **Tanggal**         | 12 Oktober 2026                                                                    |
+| **Platform target** | Desktop (Windows 10/11 dulu; Linux/macOS menyusul)                                 |
+| **Bahasa & stack**  | Python 3.12+, PySide6 (Qt 6), libmpv, SQLite                                       |
+| **Dev environment** | Antigravity (agent-assisted IDE)                                                   |
+| **Tujuan utama**    | Membuat media player pribadi yang modern, sambil belajar Python lewat projek nyata |
 
 ---
 
@@ -17,6 +17,7 @@
 NexusPlay adalah pemutar media desktop yang memutar **musik dan video** dari satu aplikasi, dengan **library berbasis database SQLite**: koleksi otomatis terindeks, bisa dicari, dibuat playlist, dilanjutkan dari posisi terakhir, dan punya statistik dengar/tonton.
 
 Pembeda dari player biasa:
+
 1. **Satu library untuk musik dan video**, bukan dua aplikasi terpisah.
 2. **Desain modern**: tema gelap, warna aksen yang mengikuti cover album, mini-player.
 3. **Offline-first dan privat**: semua data di komputer sendiri, tanpa akun, tanpa telemetri.
@@ -25,19 +26,21 @@ Pembeda dari player biasa:
 ## 2. Masalah & Tujuan
 
 **Masalah:**
+
 - Player klasik kuat di format tapi tampilannya kuno dan library-nya lemah.
 - Aplikasi streaming punya UX bagus tapi tidak untuk file lokal milik sendiri.
 - Musik dan video lokal biasanya dikelola terpisah, tanpa pencarian, riwayat, atau resume yang rapi.
 
 **Tujuan produk:**
+
 1. Memutar hampir semua format audio/video umum dengan mulus.
 2. Library cepat dan bisa dicari walau berisi ribuan file.
 3. UI yang enak dipakai setiap hari.
 
-**Tujuan belajar (sama pentingnya):**
-4. Pais paham struktur proyek, SQL dasar, dan cara kerja player. Tidak ada kode yang tidak bisa dijelaskan sendiri.
+**Tujuan belajar (sama pentingnya):** 4. Pais paham struktur proyek, SQL dasar, dan cara kerja player. Tidak ada kode yang tidak bisa dijelaskan sendiri.
 
 **Bukan tujuan (non-goals) untuk v1:**
+
 - Layanan streaming online, akun, sinkronisasi cloud.
 - Mengunduh video/musik dari internet.
 - Mobile app dan web app.
@@ -49,6 +52,7 @@ Pembeda dari player biasa:
 Pengguna utama: Pais, pemula Python, punya koleksi musik dan video lokal, memakai PC Windows.
 
 Skenario inti:
+
 - Menambah folder musik, lalu seluruh lagu muncul rapi per artis/album dalam hitungan detik.
 - Menonton film, menutup aplikasi di tengah, membukanya lagi, dan lanjut dari menit terakhir.
 - Mengetik "coldplay" di pencarian dan langsung melihat lagu, album, dan video terkait.
@@ -58,19 +62,19 @@ Skenario inti:
 
 Fitur dipilih dari tren player/streaming yang aktif di 2026, lalu disaring supaya realistis untuk satu pengembang pemula.
 
-| Tren yang terlihat | Sumber | Keputusan untuk NexusPlay |
-|---|---|---|
-| Antrean yang bisa dikontrol penuh (shuffle, smart shuffle, repeat, sleep timer, rekomendasi lanjutan) | Spotify | Queue panel + shuffle cerdas lokal + sleep timer (M5, M9) |
-| Statistik dengar ("Listening stats", ringkasan 4 minggu) | Spotify | Halaman Statistik dari tabel `play_history` (M7) |
-| Pin item favorit di atas library | Apple Music (iOS 26) | Pin artis/album/playlist (M7) |
-| Transisi antar lagu cerdas: crossfade pintar, AutoMix beat-matching berbasis ML | Apple Music | Gapless + crossfade sederhana (M9). AutoMix = fase 2 (riset) |
-| Lirik tersinkron, terjemahan, dan pelafalan lirik | Spotify, Apple Music | Lirik tersinkron lokal `.lrc` (M8). Terjemahan = fase 2 |
-| Playlist dibuat lewat perintah bahasa natural dengan AI | Spotify, Apple Music | Fase 2, opsional dan opt-in |
-| Subtitle AI offline (Whisper lokal) di player video, sudah didemokan untuk VLC di CES 2025 dan ada di beberapa player pihak ketiga | VLC, LLPlayer, dll. | Fase 2: generate subtitle offline dengan `faster-whisper` |
-| Picture-in-picture, mini-player, casting, kontrol kecepatan, volume boost | Ulasan player Windows 2026 | PiP/mini-player (M6), speed (M9). Casting = fase 2 |
-| Dekode hardware, dukungan 4K/HEVC/MKV, A-B repeat, equalizer, subtitle finder | MPC-HC, PotPlayer, GOM | Dekode hardware via mpv, A-B loop, EQ (M2, M9) |
-| Library media bergaya aplikasi (thumbnail, indeks audio/video, playlist) di VLC 4.0 | VLC 4.0 (rencana; belum terkonfirmasi rilis stabil dari hasil riset ini) | Library SQLite sendiri (M3) |
-| UI selaras desain Windows 11 (Fluent/transparan) | Ulasan player Windows 2026 | Gaya modern gelap, sudut membulat, efek halus (bagian 8) |
+| Tren yang terlihat                                                                                                                 | Sumber                                                                   | Keputusan untuk NexusPlay                                    |
+| ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------ |
+| Antrean yang bisa dikontrol penuh (shuffle, smart shuffle, repeat, sleep timer, rekomendasi lanjutan)                              | Spotify                                                                  | Queue panel + shuffle cerdas lokal + sleep timer (M5, M9)    |
+| Statistik dengar ("Listening stats", ringkasan 4 minggu)                                                                           | Spotify                                                                  | Halaman Statistik dari tabel `play_history` (M7)             |
+| Pin item favorit di atas library                                                                                                   | Apple Music (iOS 26)                                                     | Pin artis/album/playlist (M7)                                |
+| Transisi antar lagu cerdas: crossfade pintar, AutoMix beat-matching berbasis ML                                                    | Apple Music                                                              | Gapless + crossfade sederhana (M9). AutoMix = fase 2 (riset) |
+| Lirik tersinkron, terjemahan, dan pelafalan lirik                                                                                  | Spotify, Apple Music                                                     | Lirik tersinkron lokal `.lrc` (M8). Terjemahan = fase 2      |
+| Playlist dibuat lewat perintah bahasa natural dengan AI                                                                            | Spotify, Apple Music                                                     | Fase 2, opsional dan opt-in                                  |
+| Subtitle AI offline (Whisper lokal) di player video, sudah didemokan untuk VLC di CES 2025 dan ada di beberapa player pihak ketiga | VLC, LLPlayer, dll.                                                      | Fase 2: generate subtitle offline dengan `faster-whisper`    |
+| Picture-in-picture, mini-player, casting, kontrol kecepatan, volume boost                                                          | Ulasan player Windows 2026                                               | PiP/mini-player (M6), speed (M9). Casting = fase 2           |
+| Dekode hardware, dukungan 4K/HEVC/MKV, A-B repeat, equalizer, subtitle finder                                                      | MPC-HC, PotPlayer, GOM                                                   | Dekode hardware via mpv, A-B loop, EQ (M2, M9)               |
+| Library media bergaya aplikasi (thumbnail, indeks audio/video, playlist) di VLC 4.0                                                | VLC 4.0 (rencana; belum terkonfirmasi rilis stabil dari hasil riset ini) | Library SQLite sendiri (M3)                                  |
+| UI selaras desain Windows 11 (Fluent/transparan)                                                                                   | Ulasan player Windows 2026                                               | Gaya modern gelap, sudut membulat, efek halus (bagian 8)     |
 
 > Catatan: tren di atas dikumpulkan dari artikel dan halaman paket per Oktober 2026. Sebelum membangun fitur fase 2, cek ulang status terbarunya.
 
@@ -80,95 +84,95 @@ Prioritas: **Must** = wajib untuk MVP, **Should** = v1.0, **Could** = bila sempa
 
 ### 5.1 Pemutaran
 
-| ID | Kebutuhan | Prioritas |
-|----|-----------|-----------|
-| FR-1 | Putar file audio (MP3, FLAC, AAC/M4A, OGG/Opus, WAV) | Must |
-| FR-2 | Putar file video (MP4, MKV, AVI, WebM, MOV) dengan layar video tertanam di jendela | Must |
-| FR-3 | Kontrol dasar: play/pause, seek, volume, mute, next/prev | Must |
-| FR-4 | Dekode hardware otomatis bila tersedia | Should |
-| FR-5 | Kecepatan putar 0.5x–2x | Should |
-| FR-6 | Subtitle eksternal (`.srt`, `.ass`) otomatis terdeteksi, pilih trek audio/subtitle | Should |
-| FR-7 | A-B loop | Could |
-| FR-8 | Gapless playback antar lagu | Should |
-| FR-9 | Crossfade (durasi 0–12 detik, bisa dimatikan) | Could |
-| FR-10 | Equalizer 10 band + preset | Could |
-| FR-11 | Fullscreen, kontrol video menyembunyikan diri saat diam | Must |
+| ID    | Kebutuhan                                                                          | Prioritas |
+| ----- | ---------------------------------------------------------------------------------- | --------- |
+| FR-1  | Putar file audio (MP3, FLAC, AAC/M4A, OGG/Opus, WAV)                               | Must      |
+| FR-2  | Putar file video (MP4, MKV, AVI, WebM, MOV) dengan layar video tertanam di jendela | Must      |
+| FR-3  | Kontrol dasar: play/pause, seek, volume, mute, next/prev                           | Must      |
+| FR-4  | Dekode hardware otomatis bila tersedia                                             | Should    |
+| FR-5  | Kecepatan putar 0.5x–2x                                                            | Should    |
+| FR-6  | Subtitle eksternal (`.srt`, `.ass`) otomatis terdeteksi, pilih trek audio/subtitle | Should    |
+| FR-7  | A-B loop                                                                           | Could     |
+| FR-8  | Gapless playback antar lagu                                                        | Should    |
+| FR-9  | Crossfade (durasi 0–12 detik, bisa dimatikan)                                      | Could     |
+| FR-10 | Equalizer 10 band + preset                                                         | Could     |
+| FR-11 | Fullscreen, kontrol video menyembunyikan diri saat diam                            | Must      |
 
 ### 5.2 Library & Database
 
-| ID | Kebutuhan | Prioritas |
-|----|-----------|-----------|
-| FR-20 | Tambah/hapus folder library; pindai rekursif | Must |
-| FR-21 | Baca metadata audio (judul, artis, album, track, genre, durasi, cover) via `mutagen` | Must |
-| FR-22 | Video: judul dari nama file, durasi, resolusi, thumbnail | Should |
-| FR-23 | Pemindaian berjalan di latar belakang, UI tetap responsif, ada indikator progres | Must |
-| FR-24 | Pindai ulang inkremental: hanya file baru/berubah/hilang (berdasar `path`, `mtime`, `size`) | Should |
-| FR-25 | Tampilan library: Lagu, Album, Artis, Video, Favorit | Must |
-| FR-26 | Pencarian cepat lintas judul/artis/album (SQLite FTS5) | Should |
-| FR-27 | Favorit (hati) dan pin | Should |
-| FR-28 | Resume: ingat posisi terakhir tiap video (dan podcast/audio panjang) | Must |
-| FR-29 | Riwayat putar + jumlah putar | Should |
-| FR-30 | Statistik: top lagu/artis 4 minggu terakhir, total waktu dengar | Could |
+| ID    | Kebutuhan                                                                                   | Prioritas |
+| ----- | ------------------------------------------------------------------------------------------- | --------- |
+| FR-20 | Tambah/hapus folder library; pindai rekursif                                                | Must      |
+| FR-21 | Baca metadata audio (judul, artis, album, track, genre, durasi, cover) via `mutagen`        | Must      |
+| FR-22 | Video: judul dari nama file, durasi, resolusi, thumbnail                                    | Should    |
+| FR-23 | Pemindaian berjalan di latar belakang, UI tetap responsif, ada indikator progres            | Must      |
+| FR-24 | Pindai ulang inkremental: hanya file baru/berubah/hilang (berdasar `path`, `mtime`, `size`) | Should    |
+| FR-25 | Tampilan library: Lagu, Album, Artis, Video, Favorit                                        | Must      |
+| FR-26 | Pencarian cepat lintas judul/artis/album (SQLite FTS5)                                      | Should    |
+| FR-27 | Favorit (hati) dan pin                                                                      | Should    |
+| FR-28 | Resume: ingat posisi terakhir tiap video (dan podcast/audio panjang)                        | Must      |
+| FR-29 | Riwayat putar + jumlah putar                                                                | Should    |
+| FR-30 | Statistik: top lagu/artis 4 minggu terakhir, total waktu dengar                             | Could     |
 
 ### 5.3 Playlist & Antrean
 
-| ID | Kebutuhan | Prioritas |
-|----|-----------|-----------|
-| FR-40 | Buat, ubah nama, hapus playlist; tambah/hapus/urutkan item (drag & drop) | Must |
-| FR-41 | Panel antrean: lihat, susun ulang, hapus, "putar berikutnya" | Must |
-| FR-42 | Shuffle dan repeat (off / semua / satu) | Must |
-| FR-43 | Smart shuffle lokal: hindari artis yang sama berturut-turut dan lagu yang baru diputar | Could |
-| FR-44 | Sleep timer (15/30/60 menit atau sampai lagu selesai) | Should |
-| FR-45 | Ekspor/impor playlist `.m3u8` | Could |
+| ID    | Kebutuhan                                                                              | Prioritas |
+| ----- | -------------------------------------------------------------------------------------- | --------- |
+| FR-40 | Buat, ubah nama, hapus playlist; tambah/hapus/urutkan item (drag & drop)               | Must      |
+| FR-41 | Panel antrean: lihat, susun ulang, hapus, "putar berikutnya"                           | Must      |
+| FR-42 | Shuffle dan repeat (off / semua / satu)                                                | Must      |
+| FR-43 | Smart shuffle lokal: hindari artis yang sama berturut-turut dan lagu yang baru diputar | Could     |
+| FR-44 | Sleep timer (15/30/60 menit atau sampai lagu selesai)                                  | Should    |
+| FR-45 | Ekspor/impor playlist `.m3u8`                                                          | Could     |
 
 ### 5.4 Tampilan & Pengalaman
 
-| ID | Kebutuhan | Prioritas |
-|----|-----------|-----------|
-| FR-60 | Layar "Sedang Diputar" dengan cover besar dan warna aksen dari cover | Should |
-| FR-61 | Mini-player (jendela kecil selalu di atas) | Should |
-| FR-62 | Lirik tersinkron dari file `.lrc` atau tag tertanam, sorot baris aktif | Could |
-| FR-63 | Pintasan keyboard global di dalam aplikasi (bagian 9) | Must |
-| FR-64 | Tema gelap (default) dan terang | Could |
-| FR-65 | Drag & drop file/folder ke jendela untuk memutar atau menambah | Should |
-| FR-66 | Integrasi tombol media sistem dan notifikasi lagu (Windows) | Could |
+| ID    | Kebutuhan                                                              | Prioritas |
+| ----- | ---------------------------------------------------------------------- | --------- |
+| FR-60 | Layar "Sedang Diputar" dengan cover besar dan warna aksen dari cover   | Should    |
+| FR-61 | Mini-player (jendela kecil selalu di atas)                             | Should    |
+| FR-62 | Lirik tersinkron dari file `.lrc` atau tag tertanam, sorot baris aktif | Could     |
+| FR-63 | Pintasan keyboard global di dalam aplikasi (bagian 9)                  | Must      |
+| FR-64 | Tema gelap (default) dan terang                                        | Could     |
+| FR-65 | Drag & drop file/folder ke jendela untuk memutar atau menambah         | Should    |
+| FR-66 | Integrasi tombol media sistem dan notifikasi lagu (Windows)            | Could     |
 
 ### 5.5 Fase 2 (riset setelah v1.0)
 
-| ID | Kebutuhan |
-|----|-----------|
+| ID    | Kebutuhan                                                                                 |
+| ----- | ----------------------------------------------------------------------------------------- |
 | FR-80 | Subtitle AI offline dengan `faster-whisper` (model diunduh sekali, opt-in), ekspor `.srt` |
-| FR-81 | Playlist lewat perintah bahasa natural (model lokal atau API opsional, opt-in) |
-| FR-82 | AutoMix: transisi beat-matched antar lagu |
-| FR-83 | Terjemahan lirik |
-| FR-84 | Casting ke perangkat DLNA/Chromecast |
-| FR-85 | Pembersih metadata otomatis (judul/artis berantakan) |
+| FR-81 | Playlist lewat perintah bahasa natural (model lokal atau API opsional, opt-in)            |
+| FR-82 | AutoMix: transisi beat-matched antar lagu                                                 |
+| FR-83 | Terjemahan lirik                                                                          |
+| FR-84 | Casting ke perangkat DLNA/Chromecast                                                      |
+| FR-85 | Pembersih metadata otomatis (judul/artis berantakan)                                      |
 
 ## 6. Kebutuhan Non-Fungsional
 
-| Aspek | Target |
-|-------|--------|
-| Performa | Aplikasi siap pakai < 2 detik; pindai 5.000 lagu < 60 detik pada pindai pertama; UI tidak membeku lebih dari 100 ms |
-| Memori | < 300 MB saat idle dengan library 10.000 item |
-| Stabilitas | File rusak/tidak didukung tidak membuat aplikasi crash, tampilkan pesan dan lewati |
-| Privasi | Tanpa telemetri; data hanya di komputer pengguna; fitur yang butuh internet/AI bersifat opt-in dan dijelaskan jelas |
-| Keamanan | Query SQL selalu berparameter (`?`), jangan menyambung string dari input pengguna |
-| Aksesibilitas | Seluruh fitur utama bisa dipakai dengan keyboard; kontras teks memenuhi WCAG AA |
-| Portabilitas | Path dan pemisah file lewat `pathlib`; ada abstraksi supaya mesin pemutar bisa diganti |
+| Aspek         | Target                                                                                                              |
+| ------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Performa      | Aplikasi siap pakai < 2 detik; pindai 5.000 lagu < 60 detik pada pindai pertama; UI tidak membeku lebih dari 100 ms |
+| Memori        | < 300 MB saat idle dengan library 10.000 item                                                                       |
+| Stabilitas    | File rusak/tidak didukung tidak membuat aplikasi crash, tampilkan pesan dan lewati                                  |
+| Privasi       | Tanpa telemetri; data hanya di komputer pengguna; fitur yang butuh internet/AI bersifat opt-in dan dijelaskan jelas |
+| Keamanan      | Query SQL selalu berparameter (`?`), jangan menyambung string dari input pengguna                                   |
+| Aksesibilitas | Seluruh fitur utama bisa dipakai dengan keyboard; kontras teks memenuhi WCAG AA                                     |
+| Portabilitas  | Path dan pemisah file lewat `pathlib`; ada abstraksi supaya mesin pemutar bisa diganti                              |
 
 ## 7. Arsitektur
 
 ### 7.1 Tech stack
 
-| Lapisan | Pilihan | Alasan |
-|---------|---------|--------|
-| UI | **PySide6** (Qt 6, seri 6.11.x per pertengahan 2026; pakai versi stabil terbaru saat instal) | Matang, tampilan modern bisa dibuat dengan stylesheet (QSS), resmi dari Qt |
-| Mesin pemutar | **libmpv** lewat paket `python-mpv` (butuh Python 3.9+ dan file libmpv di komputer) | Format dan fitur sangat lengkap: hardware decode, speed, A-B loop, filter audio, gapless, subtitle |
-| Database | **SQLite** lewat modul `sqlite3` bawaan Python, tanpa ORM | Tanpa server, satu file, cocok untuk belajar SQL langsung |
-| Metadata audio | **mutagen** (seri 1.47.x) | Baca tag ID3/Vorbis/MP4/FLAC dan cover |
-| Metadata video & thumbnail | libmpv (durasi/resolusi), `ffmpeg` opsional untuk thumbnail | Hindari dependensi tambahan di awal |
-| Test | **pytest** | Standar |
-| Paket jadi (akhir) | **PyInstaller** | Satu folder/exe untuk dibagikan |
+| Lapisan                    | Pilihan                                                                                      | Alasan                                                                                             |
+| -------------------------- | -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| UI                         | **PySide6** (Qt 6, seri 6.11.x per pertengahan 2026; pakai versi stabil terbaru saat instal) | Matang, tampilan modern bisa dibuat dengan stylesheet (QSS), resmi dari Qt                         |
+| Mesin pemutar              | **libmpv** lewat paket `python-mpv` (butuh Python 3.9+ dan file libmpv di komputer)          | Format dan fitur sangat lengkap: hardware decode, speed, A-B loop, filter audio, gapless, subtitle |
+| Database                   | **SQLite** lewat modul `sqlite3` bawaan Python, tanpa ORM                                    | Tanpa server, satu file, cocok untuk belajar SQL langsung                                          |
+| Metadata audio             | **mutagen** (seri 1.47.x)                                                                    | Baca tag ID3/Vorbis/MP4/FLAC dan cover                                                             |
+| Metadata video & thumbnail | libmpv (durasi/resolusi), `ffmpeg` opsional untuk thumbnail                                  | Hindari dependensi tambahan di awal                                                                |
+| Test                       | **pytest**                                                                                   | Standar                                                                                            |
+| Paket jadi (akhir)         | **PyInstaller**                                                                              | Satu folder/exe untuk dibagikan                                                                    |
 
 > Cadangan: bila memasang libmpv terlalu merepotkan, ganti sementara ke `QMediaPlayer` (Qt Multimedia) untuk M1–M2. Karena itu mesin pemutar dibungkus kelas `Player` supaya mudah ditukar.
 
@@ -247,20 +251,20 @@ nexusplay/
 
 ### 8.2 Token desain (tema gelap)
 
-| Token | Nilai |
-|-------|-------|
-| `bg` | `#0B0D12` |
-| `surface` | `#151922` |
-| `surface-2` | `#1D2230` |
-| `border` | `#262C3B` |
-| `text` | `#E8EAF0` |
-| `text-muted` | `#8B93A7` |
-| `accent` | gradien `#7C5CFF` → `#22D3EE` (default); diganti warna dominan cover saat lagu diputar |
-| `danger` | `#FF5C7A` |
-| Radius | 12 px (kartu), 999 px (tombol bulat/chip) |
-| Spasi | skala 4 / 8 / 12 / 16 / 24 / 32 px |
-| Font | Inter (disertakan), cadangan Segoe UI |
-| Animasi | 150–250 ms ease-out untuk hover, buka panel, ganti view |
+| Token        | Nilai                                                                                  |
+| ------------ | -------------------------------------------------------------------------------------- |
+| `bg`         | `#0B0D12`                                                                              |
+| `surface`    | `#151922`                                                                              |
+| `surface-2`  | `#1D2230`                                                                              |
+| `border`     | `#262C3B`                                                                              |
+| `text`       | `#E8EAF0`                                                                              |
+| `text-muted` | `#8B93A7`                                                                              |
+| `accent`     | gradien `#7C5CFF` → `#22D3EE` (default); diganti warna dominan cover saat lagu diputar |
+| `danger`     | `#FF5C7A`                                                                              |
+| Radius       | 12 px (kartu), 999 px (tombol bulat/chip)                                              |
+| Spasi        | skala 4 / 8 / 12 / 16 / 24 / 32 px                                                     |
+| Font         | Inter (disertakan), cadangan Segoe UI                                                  |
+| Animasi      | 150–250 ms ease-out untuk hover, buka panel, ganti view                                |
 
 ### 8.3 Prinsip interaksi
 
@@ -271,20 +275,20 @@ nexusplay/
 
 ## 9. Pintasan Keyboard
 
-| Tombol | Aksi |
-|--------|------|
-| `Space` | Play/pause |
-| `←` / `→` | Mundur / maju 5 detik |
-| `Shift+←` / `Shift+→` | Mundur / maju 30 detik |
-| `↑` / `↓` | Volume naik/turun |
-| `M` | Mute |
-| `N` / `P` | Berikutnya / sebelumnya |
-| `S` | Shuffle |
-| `R` | Repeat (siklus) |
-| `F` | Fullscreen (`Esc` keluar) |
-| `Ctrl+F` | Fokus ke pencarian |
-| `Ctrl+Q` | Tampilkan/sembunyikan antrean |
-| `Ctrl+L` | Tampilkan/sembunyikan lirik |
+| Tombol                | Aksi                          |
+| --------------------- | ----------------------------- |
+| `Space`               | Play/pause                    |
+| `←` / `→`             | Mundur / maju 5 detik         |
+| `Shift+←` / `Shift+→` | Mundur / maju 30 detik        |
+| `↑` / `↓`             | Volume naik/turun             |
+| `M`                   | Mute                          |
+| `N` / `P`             | Berikutnya / sebelumnya       |
+| `S`                   | Shuffle                       |
+| `R`                   | Repeat (siklus)               |
+| `F`                   | Fullscreen (`Esc` keluar)     |
+| `Ctrl+F`              | Fokus ke pencarian            |
+| `Ctrl+Q`              | Tampilkan/sembunyikan antrean |
+| `Ctrl+L`              | Tampilkan/sembunyikan lirik   |
 
 ## 10. Skema Database
 
@@ -373,6 +377,7 @@ CREATE VIRTUAL TABLE media_fts USING fts5 (title, artist, album);
 ```
 
 **Aturan data:**
+
 - Hitung sebagai "diputar" bila didengar ≥ 30 detik atau ≥ 50% durasi (mana yang lebih dulu); baru saat itu `play_count` naik dan baris `play_history` dibuat.
 - `resume_ms` direset ke 0 bila posisi > 95% durasi.
 - File yang hilang dari disk ditandai/dihapus pada pindai ulang; riwayat ikut terhapus karena `ON DELETE CASCADE`. Putuskan di M3 apakah file hilang disembunyikan dulu atau langsung dihapus.
@@ -382,26 +387,27 @@ CREATE VIRTUAL TABLE media_fts USING fts5 (title, artist, album);
 
 Satu milestone = satu sesi kerja yang selesai, jalan, diuji, lalu di-commit. Jangan lompat urutan.
 
-| # | Milestone | Hasil / selesai kalau | Konsep yang dipelajari |
-|---|-----------|----------------------|------------------------|
-| M0 | Setup: Python 3.12, venv, Git, instal PySide6, jendela kosong tampil | `python main.py` membuka jendela bertema gelap | venv, pip, struktur proyek |
-| M1 | `Player` (mpv): putar satu file audio dari path, play/pause/seek/volume lewat tombol sederhana | Lagu terdengar, tombol berfungsi | kelas, sinyal/slot Qt, pustaka eksternal |
-| M2 | Video tertanam di jendela + fullscreen + subtitle eksternal | Video tampil di dalam jendela, `F` fullscreen | embed widget (`wid`), event |
-| M3 | Database + pemindai: tambah folder, baca metadata, simpan ke SQLite, thread latar | 1.000 file terindeks tanpa UI membeku; pindai ulang tidak menggandakan data | SQL dasar, `sqlite3`, threading, `pathlib` |
-| M4 | Kerangka UI: sidebar, view Musik/Album/Artis/Video, bar pemutar bawah | Klik lagu di library langsung memutar | layout Qt, model/view, QSS |
-| M5 | Antrean + playlist + shuffle/repeat + drag & drop | Playlist tersimpan setelah restart | struktur data, relasi tabel, urutan |
-| M6 | Resume video, layar Sedang Diputar, warna aksen dari cover, mini-player | Video lanjut dari menit terakhir; mini-player selalu di atas | state, QImage, jendela kedua |
-| M7 | Pencarian FTS5, favorit/pin, riwayat, halaman statistik | Ketik "col" menampilkan hasil < 100 ms | FTS, agregasi SQL (`GROUP BY`) |
-| M8 | Lirik tersinkron `.lrc` | Baris aktif tersorot sesuai waktu | parsing teks, regex, timer |
-| M9 | Gapless, crossfade, equalizer, speed, A-B loop, sleep timer | Semua kontrol berfungsi dan bisa dimatikan | opsi mpv, filter audio |
-| M10 | Penyempurnaan: pintasan, tema terang, drag & drop file, pesan error ramah | Semua kriteria penerimaan terpenuhi | UX, penanganan error |
-| M11 | Pengemasan dengan PyInstaller + README | Aplikasi berjalan di komputer tanpa Python | packaging |
+| #   | Milestone                                                                                      | Hasil / selesai kalau                                                       | Konsep yang dipelajari                     |
+| --- | ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- | ------------------------------------------ |
+| M0  | Setup: Python 3.12, venv, Git, instal PySide6, jendela kosong tampil                           | `python main.py` membuka jendela bertema gelap                              | venv, pip, struktur proyek                 |
+| M1  | `Player` (mpv): putar satu file audio dari path, play/pause/seek/volume lewat tombol sederhana | Lagu terdengar, tombol berfungsi                                            | kelas, sinyal/slot Qt, pustaka eksternal   |
+| M2  | Video tertanam di jendela + fullscreen + subtitle eksternal                                    | Video tampil di dalam jendela, `F` fullscreen                               | embed widget (`wid`), event                |
+| M3  | Database + pemindai: tambah folder, baca metadata, simpan ke SQLite, thread latar              | 1.000 file terindeks tanpa UI membeku; pindai ulang tidak menggandakan data | SQL dasar, `sqlite3`, threading, `pathlib` |
+| M4  | Kerangka UI: sidebar, view Musik/Album/Artis/Video, bar pemutar bawah                          | Klik lagu di library langsung memutar                                       | layout Qt, model/view, QSS                 |
+| M5  | Antrean + playlist + shuffle/repeat + drag & drop                                              | Playlist tersimpan setelah restart                                          | struktur data, relasi tabel, urutan        |
+| M6  | Resume video, layar Sedang Diputar, warna aksen dari cover, mini-player                        | Video lanjut dari menit terakhir; mini-player selalu di atas                | state, QImage, jendela kedua               |
+| M7  | Pencarian FTS5, favorit/pin, riwayat, halaman statistik                                        | Ketik "col" menampilkan hasil < 100 ms                                      | FTS, agregasi SQL (`GROUP BY`)             |
+| M8  | Lirik tersinkron `.lrc`                                                                        | Baris aktif tersorot sesuai waktu                                           | parsing teks, regex, timer                 |
+| M9  | Gapless, crossfade, equalizer, speed, A-B loop, sleep timer                                    | Semua kontrol berfungsi dan bisa dimatikan                                  | opsi mpv, filter audio                     |
+| M10 | Penyempurnaan: pintasan, tema terang, drag & drop file, pesan error ramah                      | Semua kriteria penerimaan terpenuhi                                         | UX, penanganan error                       |
+| M11 | Pengemasan dengan PyInstaller + README                                                         | Aplikasi berjalan di komputer tanpa Python                                  | packaging                                  |
 
 **MVP = M0–M5.** Sampai M5 NexusPlay sudah berguna sehari-hari. M6–M11 adalah v1.0.
 
 ## 12. Kriteria Penerimaan
 
 **MVP (M0–M5):**
+
 - [ ] Memutar minimal MP3, FLAC, M4A, MP4, dan MKV tanpa crash.
 - [ ] Menambah folder berisi 1.000+ file: UI tetap bisa digeser/diklik saat pemindaian.
 - [ ] Menutup dan membuka ulang aplikasi: library, playlist, dan pengaturan tetap ada.
@@ -411,6 +417,7 @@ Satu milestone = satu sesi kerja yang selesai, jalan, diuji, lalu di-commit. Jan
 - [ ] Semua query SQL memakai parameter (`?`), tidak ada string yang disambung dari input.
 
 **v1.0 (M6–M11):**
+
 - [ ] Video lanjut dari posisi terakhir; posisi tereset bila hampir selesai.
 - [ ] Pencarian menampilkan hasil < 100 ms pada 10.000 item.
 - [ ] Warna aksen dari cover tetap terbaca (kontras cukup).
@@ -420,16 +427,16 @@ Satu milestone = satu sesi kerja yang selesai, jalan, diuji, lalu di-commit. Jan
 
 ## 13. Risiko & Mitigasi
 
-| Risiko | Dampak | Mitigasi |
-|--------|--------|----------|
-| Proyek terlalu besar untuk pemula | Berhenti di tengah | MVP kecil (M0–M5), satu milestone satu sesi, fitur baru masuk Backlog |
-| Pemasangan libmpv merepotkan di Windows | Terhambat di M1 | Siapkan panduan di README; cadangan `QMediaPlayer` untuk M1–M2 |
-| Video tertanam bermasalah di Linux (Wayland) | Video tidak tampil di Linux | Target Windows dulu; Linux dites setelah v1.0 |
-| UI membeku saat pindai/thumbnail | Pengalaman buruk | Semua pekerjaan berat di thread latar + sinyal Qt |
-| Metadata berantakan | Library tampak kacau | Fallback ke nama file; pembersih metadata = fase 2 |
-| Agent menulis kode terlalu banyak tanpa dipahami | Tidak belajar | Aturan kerja bagian 14 |
+| Risiko                                                                          | Dampak                        | Mitigasi                                                                |
+| ------------------------------------------------------------------------------- | ----------------------------- | ----------------------------------------------------------------------- |
+| Proyek terlalu besar untuk pemula                                               | Berhenti di tengah            | MVP kecil (M0–M5), satu milestone satu sesi, fitur baru masuk Backlog   |
+| Pemasangan libmpv merepotkan di Windows                                         | Terhambat di M1               | Siapkan panduan di README; cadangan `QMediaPlayer` untuk M1–M2          |
+| Video tertanam bermasalah di Linux (Wayland)                                    | Video tidak tampil di Linux   | Target Windows dulu; Linux dites setelah v1.0                           |
+| UI membeku saat pindai/thumbnail                                                | Pengalaman buruk              | Semua pekerjaan berat di thread latar + sinyal Qt                       |
+| Metadata berantakan                                                             | Library tampak kacau          | Fallback ke nama file; pembersih metadata = fase 2                      |
+| Agent menulis kode terlalu banyak tanpa dipahami                                | Tidak belajar                 | Aturan kerja bagian 14                                                  |
 | Lisensi: PySide6 (LGPL), mutagen (GPL-2.0+), libmpv (LGPL/GPL tergantung build) | Masalah bila dibagikan/dijual | Untuk pemakaian pribadi aman; cek lisensi sebelum mendistribusikan luas |
-| Fitur AI fase 2 mengunduh model besar | Boros disk/bandwidth | Opt-in, tampilkan ukuran unduhan sebelum mulai |
+| Fitur AI fase 2 mengunduh model besar                                           | Boros disk/bandwidth          | Opt-in, tampilkan ukuran unduhan sebelum mulai                          |
 
 ## 14. Workflow di Antigravity
 

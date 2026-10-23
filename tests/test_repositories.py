@@ -223,3 +223,64 @@ def test_list_albums_and_artists(conn):
     assert artists[0]["track_count"] == 2
     assert artists[0]["album_count"] == 1
 
+
+# ── Tes Playlist (M5) ──────────────────────────────────────────
+
+def test_playlist_crud_and_pin(conn):
+    pid = repo.create_playlist(conn, "Favorit Santai")
+    assert pid is not None
+
+    pl = repo.get_playlist(conn, pid)
+    assert pl["name"] == "Favorit Santai"
+    assert pl["is_pinned"] == 0
+
+    # Rename
+    repo.rename_playlist(conn, pid, "Santai Sore")
+    assert repo.get_playlist(conn, pid)["name"] == "Santai Sore"
+
+    # Toggle pin
+    pinned = repo.toggle_playlist_pin(conn, pid)
+    assert pinned is True
+    assert repo.get_playlist(conn, pid)["is_pinned"] == 1
+
+    # List playlists
+    all_pl = repo.list_playlists(conn)
+    assert len(all_pl) == 1
+    assert all_pl[0]["name"] == "Santai Sore"
+
+    # Delete
+    repo.delete_playlist(conn, pid)
+    assert repo.get_playlist(conn, pid) is None
+
+
+def test_playlist_items_and_reorder(conn):
+    pid = repo.create_playlist(conn, "Workout")
+    m1 = repo.upsert_media(conn, make_media("C:\\m\\track1.mp3", title="Track 1"))
+    m2 = repo.upsert_media(conn, make_media("C:\\m\\track2.mp3", title="Track 2"))
+    m3 = repo.upsert_media(conn, make_media("C:\\m\\track3.mp3", title="Track 3"))
+
+    # Tambahkan ke playlist
+    pos0 = repo.add_media_to_playlist(conn, pid, m1)
+    pos1 = repo.add_media_to_playlist(conn, pid, m2)
+    pos2 = repo.add_media_to_playlist(conn, pid, m3)
+    assert (pos0, pos1, pos2) == (0, 1, 2)
+
+    items = repo.get_playlist_items(conn, pid)
+    assert len(items) == 3
+    assert [it["title"] for it in items] == ["Track 1", "Track 2", "Track 3"]
+
+    # Hapus item di posisi 1 (Track 2)
+    repo.remove_from_playlist(conn, pid, position=1)
+    items_after = repo.get_playlist_items(conn, pid)
+    assert len(items_after) == 2
+    assert [it["title"] for it in items_after] == ["Track 1", "Track 3"]
+    # Posisi Track 3 harus rapat jadi 1
+    assert items_after[1]["position"] == 1
+
+    # Reorder (Track 3 dulu, lalu Track 1)
+    repo.reorder_playlist_items(conn, pid, [m3, m1])
+    reordered = repo.get_playlist_items(conn, pid)
+    assert [it["title"] for it in reordered] == ["Track 3", "Track 1"]
+    assert [it["position"] for it in reordered] == [0, 1]
+
+

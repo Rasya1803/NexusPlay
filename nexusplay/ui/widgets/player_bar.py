@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 )
 
 from nexusplay.core.player import Player
+from nexusplay.core.queue import PlayQueue
 
 
 def format_ms(ms: int) -> str:
@@ -45,12 +46,19 @@ class PlayerBar(QWidget):
 
     # Sinyal keluar ke MainWindow
     fullscreen_requested = Signal()
+    queue_toggle_requested = Signal()
     next_requested = Signal()
     prev_requested = Signal()
 
-    def __init__(self, player: Player, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        player: Player,
+        queue: PlayQueue | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
         self.player = player
+        self.queue = queue
         self._seeking = False
 
         self.setFixedHeight(84)
@@ -118,8 +126,13 @@ class PlayerBar(QWidget):
         # Baris tombol kontrol
         buttons_row = QHBoxLayout()
         buttons_row.setContentsMargins(0, 0, 0, 0)
-        buttons_row.setSpacing(12)
+        buttons_row.setSpacing(10)
         buttons_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self.shuffle_button = QPushButton("🔀")
+        self.shuffle_button.setFixedSize(32, 32)
+        self.shuffle_button.setToolTip("Acak (S)")
+        self.shuffle_button.setStyleSheet(self._button_style(round_shape=True))
 
         self.prev_button = QPushButton("⏮")
         self.prev_button.setFixedSize(36, 36)
@@ -151,9 +164,16 @@ class PlayerBar(QWidget):
         self.next_button.setToolTip("Berikutnya (N)")
         self.next_button.setStyleSheet(self._button_style(round_shape=True))
 
+        self.repeat_button = QPushButton("🔁")
+        self.repeat_button.setFixedSize(32, 32)
+        self.repeat_button.setToolTip("Ulang: Mati (R)")
+        self.repeat_button.setStyleSheet(self._button_style(round_shape=True))
+
+        buttons_row.addWidget(self.shuffle_button)
         buttons_row.addWidget(self.prev_button)
         buttons_row.addWidget(self.play_button)
         buttons_row.addWidget(self.next_button)
+        buttons_row.addWidget(self.repeat_button)
 
         # Baris slider posisi + waktu
         seek_row = QHBoxLayout()
@@ -199,6 +219,11 @@ class PlayerBar(QWidget):
         self.volume_slider.setFixedHeight(18)
         self.volume_slider.setStyleSheet(self._slider_style("#22D3EE"))
 
+        self.queue_button = QPushButton("☰")
+        self.queue_button.setFixedSize(34, 34)
+        self.queue_button.setToolTip("Antrean (Ctrl+Q)")
+        self.queue_button.setStyleSheet(self._button_style(round_shape=True))
+
         self.fullscreen_button = QPushButton("⛶")
         self.fullscreen_button.setFixedSize(34, 34)
         self.fullscreen_button.setToolTip("Layar Penuh (F)")
@@ -206,6 +231,7 @@ class PlayerBar(QWidget):
 
         right_layout.addWidget(self.mute_button)
         right_layout.addWidget(self.volume_slider)
+        right_layout.addWidget(self.queue_button)
         right_layout.addWidget(self.fullscreen_button)
         layout.addWidget(right_widget, 0)
 
@@ -250,7 +276,6 @@ class PlayerBar(QWidget):
             }}
             QSlider::handle:horizontal:hover {{
                 background: {accent_color};
-                transform: scale(1.2);
             }}
         """
 
@@ -286,9 +311,8 @@ class PlayerBar(QWidget):
         # Tombol
         self.play_button.clicked.connect(self.player.toggle_pause)
         self.mute_button.clicked.connect(self.player.toggle_mute)
-        self.prev_button.clicked.connect(self.prev_requested)
-        self.next_button.clicked.connect(self.next_requested)
         self.fullscreen_button.clicked.connect(self.fullscreen_requested)
+        self.queue_button.clicked.connect(self.queue_toggle_requested)
 
         # Slider pengguna
         self.volume_slider.valueChanged.connect(self.player.set_volume)
@@ -304,7 +328,73 @@ class PlayerBar(QWidget):
         self.player.mute_changed.connect(self._on_mute_changed)
         self.player.media_loaded.connect(self._on_media_loaded)
 
+        if self.queue:
+            self.set_queue(self.queue)
+        else:
+            self.prev_button.clicked.connect(self.prev_requested)
+            self.next_button.clicked.connect(self.next_requested)
+
+    def set_queue(self, queue: PlayQueue) -> None:
+        """Hubungkan PlayQueue ke tombol kontrol antrean, shuffle, dan repeat."""
+        self.queue = queue
+        self.prev_button.clicked.connect(self.queue.prev)
+        self.next_button.clicked.connect(self.queue.next)
+        self.shuffle_button.clicked.connect(self.queue.toggle_shuffle)
+        self.repeat_button.clicked.connect(self.queue.cycle_repeat_mode)
+
+        self.queue.shuffle_changed.connect(self._on_shuffle_changed)
+        self.queue.repeat_changed.connect(self._on_repeat_changed)
+
+        self._on_shuffle_changed(self.queue.shuffle)
+        self._on_repeat_changed(self.queue.repeat_mode)
+
     # ── Handler Sinyal ─────────────────────────────────────────
+
+    def _on_shuffle_changed(self, enabled: bool) -> None:
+        if enabled:
+            self.shuffle_button.setStyleSheet("""
+                QPushButton {
+                    background-color: #7C5CFF;
+                    color: #FFFFFF;
+                    border: 1px solid #7C5CFF;
+                    border-radius: 16px;
+                    font-size: 13px;
+                }
+            """)
+            self.shuffle_button.setToolTip("Acak: Aktif (S)")
+        else:
+            self.shuffle_button.setStyleSheet(self._button_style(round_shape=True))
+            self.shuffle_button.setToolTip("Acak: Mati (S)")
+
+    def _on_repeat_changed(self, mode: str) -> None:
+        if mode == "all":
+            self.repeat_button.setText("🔁")
+            self.repeat_button.setStyleSheet("""
+                QPushButton {
+                    background-color: #7C5CFF;
+                    color: #FFFFFF;
+                    border: 1px solid #7C5CFF;
+                    border-radius: 16px;
+                    font-size: 13px;
+                }
+            """)
+            self.repeat_button.setToolTip("Ulang: Semua Lagu (R)")
+        elif mode == "one":
+            self.repeat_button.setText("🔂")
+            self.repeat_button.setStyleSheet("""
+                QPushButton {
+                    background-color: #7C5CFF;
+                    color: #FFFFFF;
+                    border: 1px solid #7C5CFF;
+                    border-radius: 16px;
+                    font-size: 13px;
+                }
+            """)
+            self.repeat_button.setToolTip("Ulang: Satu Lagu Ini (R)")
+        else:
+            self.repeat_button.setText("🔁")
+            self.repeat_button.setStyleSheet(self._button_style(round_shape=True))
+            self.repeat_button.setToolTip("Ulang: Mati (R)")
 
     def _on_state_changed(self, state: str) -> None:
         self.play_button.setText("⏸" if state == "playing" else "▶")

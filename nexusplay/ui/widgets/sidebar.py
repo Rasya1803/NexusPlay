@@ -116,6 +116,7 @@ class Sidebar(QWidget):
         self.nav_albums = NavButton("💿", "Album", "albums")
         self.nav_artists = NavButton("👤", "Artis", "artists")
         self.nav_videos = NavButton("🎬", "Video", "videos")
+        self.nav_playlists = NavButton("≡", "Playlist", "playlists")
         self.nav_folders = NavButton("📁", "Folder Library", "folders")
 
         nav_buttons = [
@@ -123,6 +124,7 @@ class Sidebar(QWidget):
             self.nav_albums,
             self.nav_artists,
             self.nav_videos,
+            self.nav_playlists,
             self.nav_folders,
         ]
 

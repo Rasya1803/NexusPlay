@@ -186,11 +186,11 @@ class FoldersView(QWidget):
     def _on_remove_clicked(self) -> None:
         curr = self.folder_list.currentItem()
         if not curr:
-            QMessageBox.information(self, "Pilih Folder", "Pilih folder yang ingin dihapus dari daftar terlebih dahulu.")
+            QMessageBox.information(self.window(), "Pilih Folder", "Pilih folder yang ingin dihapus dari daftar terlebih dahulu.")
             return
         folder_path = curr.data(Qt.ItemDataRole.UserRole)
         confirm = QMessageBox.question(
-            self,
+            self.window(),
             "Konfirmasi Hapus Folder",
             f"Hapus folder ini dari library NexusPlay?\n\n{folder_path}\n\n(Catatan: File fisik di komputer Anda TIDAK akan terhapus).",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,

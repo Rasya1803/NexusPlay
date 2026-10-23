@@ -321,3 +321,118 @@ def list_artists(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     """
     return conn.execute(sql).fetchall()
 
+
+# ── Playlist (M5) ──────────────────────────────────────────────
+
+def create_playlist(conn: sqlite3.Connection, name: str) -> int:
+    """Buat playlist baru dan kembalikan id-nya."""
+    cur = conn.execute("INSERT INTO playlists (name) VALUES (?)", (name.strip(),))
+    conn.commit()
+    return cur.lastrowid
+
+
+def list_playlists(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """Daftar playlist dengan jumlah trek di dalamnya, urut pin lalu abjad."""
+    sql = """
+        SELECT
+            p.id,
+            p.name,
+            p.is_pinned,
+            p.created_at,
+            COUNT(pi.media_id) AS track_count
+        FROM playlists p
+        LEFT JOIN playlist_items pi ON pi.playlist_id = p.id
+        GROUP BY p.id
+        ORDER BY p.is_pinned DESC, p.name COLLATE NOCASE ASC
+    """
+    return conn.execute(sql).fetchall()
+
+
+def get_playlist(conn: sqlite3.Connection, playlist_id: int) -> sqlite3.Row | None:
+    """Ambil info satu playlist berdasarkan id."""
+    return conn.execute("SELECT * FROM playlists WHERE id = ?", (playlist_id,)).fetchone()
+
+
+def rename_playlist(conn: sqlite3.Connection, playlist_id: int, new_name: str) -> None:
+    """Ubah nama playlist."""
+    conn.execute("UPDATE playlists SET name = ? WHERE id = ?", (new_name.strip(), playlist_id))
+    conn.commit()
+
+
+def delete_playlist(conn: sqlite3.Connection, playlist_id: int) -> None:
+    """Hapus playlist beserta isinya (karena ON DELETE CASCADE)."""
+    conn.execute("DELETE FROM playlists WHERE id = ?", (playlist_id,))
+    conn.commit()
+
+
+def toggle_playlist_pin(conn: sqlite3.Connection, playlist_id: int) -> bool:
+    """Sematkan (pin) atau lepas pin playlist."""
+    row = conn.execute("SELECT is_pinned FROM playlists WHERE id = ?", (playlist_id,)).fetchone()
+    if row is None:
+        return False
+    new_pinned = 0 if row["is_pinned"] else 1
+    conn.execute("UPDATE playlists SET is_pinned = ? WHERE id = ?", (new_pinned, playlist_id))
+    conn.commit()
+    return bool(new_pinned)
+
+
+def add_media_to_playlist(conn: sqlite3.Connection, playlist_id: int, media_id: int) -> int:
+    """Tambahkan media ke akhir playlist. Mengembalikan nomor posisi."""
+    row = conn.execute(
+        "SELECT COALESCE(MAX(position), -1) + 1 AS next_pos FROM playlist_items WHERE playlist_id = ?",
+        (playlist_id,),
+    ).fetchone()
+    next_pos = row["next_pos"]
+    conn.execute(
+        "INSERT INTO playlist_items (playlist_id, media_id, position) VALUES (?, ?, ?)",
+        (playlist_id, media_id, next_pos),
+    )
+    conn.commit()
+    return next_pos
+
+
+def remove_from_playlist(conn: sqlite3.Connection, playlist_id: int, position: int) -> None:
+    """Hapus satu lagu dari playlist di `position` tertentu dan rapatkan urutan sisanya."""
+    conn.execute(
+        "DELETE FROM playlist_items WHERE playlist_id = ? AND position = ?",
+        (playlist_id, position),
+    )
+    conn.execute(
+        "UPDATE playlist_items SET position = position - 1 WHERE playlist_id = ? AND position > ?",
+        (playlist_id, position),
+    )
+    conn.commit()
+
+
+def get_playlist_items(conn: sqlite3.Connection, playlist_id: int) -> list[sqlite3.Row]:
+    """Daftar semua lagu di dalam playlist sesuai urutan posisi (0, 1, 2, ...)."""
+    sql = """
+        SELECT
+            pi.position,
+            m.id, m.kind, m.path, m.title, m.track_no, m.genre,
+            m.duration_ms, m.width, m.height, m.file_size,
+            m.is_favorite,
+            ar.name AS artist,
+            al.title AS album,
+            al.cover_path AS cover_path
+        FROM playlist_items pi
+        JOIN media m ON m.id = pi.media_id
+        LEFT JOIN artists ar ON ar.id = m.artist_id
+        LEFT JOIN albums  al ON al.id = m.album_id
+        WHERE pi.playlist_id = ?
+        ORDER BY pi.position ASC
+    """
+    return conn.execute(sql, (playlist_id,)).fetchall()
+
+
+def reorder_playlist_items(conn: sqlite3.Connection, playlist_id: int, media_ids: list[int]) -> None:
+    """Susun ulang posisi seluruh item di dalam playlist (drag & drop)."""
+    conn.execute("DELETE FROM playlist_items WHERE playlist_id = ?", (playlist_id,))
+    rows = [(playlist_id, m_id, idx) for idx, m_id in enumerate(media_ids)]
+    conn.executemany(
+        "INSERT INTO playlist_items (playlist_id, media_id, position) VALUES (?, ?, ?)",
+        rows,
+    )
+    conn.commit()
+
+
