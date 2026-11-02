@@ -34,6 +34,7 @@ from nexusplay.core.player import Player
 from nexusplay.core.queue import PlayQueue
 from nexusplay.db import repositories as repo
 from nexusplay.db.connection import open_database
+from nexusplay.library.lyrics import load_lyrics_for_media, read_lrc_file
 from nexusplay.library.scanner import LibraryScanner, ScanResult
 from nexusplay.ui.mini_player import MiniPlayer
 from nexusplay.ui.theme import extract_accent_color
@@ -48,7 +49,7 @@ from nexusplay.ui.views import (
     StatsView,
     VideoView,
 )
-from nexusplay.ui.widgets import PlayerBar, QueuePanel, Sidebar, VideoWidget
+from nexusplay.ui.widgets import LyricsPanel, PlayerBar, QueuePanel, Sidebar, VideoWidget
 
 CONTROLS_HIDE_MS = 3000   # Durasi auto-hide bar pemutar saat fullscreen video (PRD 8.1)
 
@@ -227,7 +228,11 @@ class MainWindow(QMainWindow):
         center_col_layout.addWidget(self.content_stack, 1)
         body_layout.addWidget(center_column, 1)
 
-        # 3. Panel antrean kanan (QueuePanel)
+        # 3. Panel antrean & lirik kanan (QueuePanel & LyricsPanel)
+        self.lyrics_panel = LyricsPanel(self)
+        self.lyrics_panel.hide()
+        body_layout.addWidget(self.lyrics_panel)
+
         self.queue_panel = QueuePanel(self.queue, self)
         self.queue_panel.hide()
         body_layout.addWidget(self.queue_panel)
@@ -246,6 +251,7 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence(Qt.Key.Key_Escape), self, self.exit_fullscreen)
         QShortcut(QKeySequence(Qt.Key.Key_Space), self, self.player.toggle_pause)
         QShortcut(QKeySequence("Ctrl+Q"), self, self._toggle_queue_panel)
+        QShortcut(QKeySequence("Ctrl+L"), self, self._toggle_lyrics_panel)
         QShortcut(QKeySequence(Qt.Key.Key_S), self, self.queue.toggle_shuffle)
         QShortcut(QKeySequence(Qt.Key.Key_R), self, self.queue.cycle_repeat_mode)
         QShortcut(QKeySequence(Qt.Key.Key_N), self, self.queue.next)
@@ -315,8 +321,9 @@ class MainWindow(QMainWindow):
         self.queue.track_changed.connect(self._on_queue_track_changed)
         self.player.track_finished.connect(self._on_track_finished)
 
-        # Panel Antrean, Layar Sedang Diputar (FR-60), Mini-Player (FR-61), & Favorit
+        # Panel Antrean, Lirik (FR-62), Layar Sedang Diputar (FR-60), Mini-Player (FR-61), & Favorit
         self.player_bar.queue_toggle_requested.connect(self._toggle_queue_panel)
+        self.player_bar.lyrics_toggle_requested.connect(self._toggle_lyrics_panel)
         self.player_bar.now_playing_requested.connect(self._toggle_now_playing_view)
         self.player_bar.mini_player_requested.connect(self._enter_mini_player)
         self.player_bar.favorite_toggled.connect(self._on_toggle_current_favorite)
@@ -325,6 +332,10 @@ class MainWindow(QMainWindow):
         self.mini_player.next_requested.connect(self.queue.next)
         self.mini_player.restore_requested.connect(self._exit_mini_player)
         self.queue_panel.close_requested.connect(self.queue_panel.hide)
+        self.lyrics_panel.close_requested.connect(self.lyrics_panel.hide)
+        self.lyrics_panel.seek_requested.connect(self.player.seek)
+        self.lyrics_panel.load_lrc_requested.connect(self._load_manual_lrc)
+        self.player.position_changed.connect(self.lyrics_panel.update_position)
 
         # Video
         self.video_view.media_activated.connect(self._play_video_track)
@@ -492,8 +503,31 @@ class MainWindow(QMainWindow):
         if self.queue_panel.isVisible():
             self.queue_panel.hide()
         else:
+            self.lyrics_panel.hide()
             self.queue_panel.refresh()
             self.queue_panel.show()
+
+    def _toggle_lyrics_panel(self) -> None:
+        """Tampilkan atau sembunyikan panel lirik tersinkron sisi kanan (Ctrl+L)."""
+        if self.lyrics_panel.isVisible():
+            self.lyrics_panel.hide()
+        else:
+            self.queue_panel.hide()
+            self.lyrics_panel.show()
+
+    def _load_manual_lrc(self) -> None:
+        """Pilih file .lrc dari komputer dan tampilkan di LyricsPanel."""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Pilih File Lirik (.lrc)",
+            "",
+            "LRC Lyrics (*.lrc *.LRC);;All Files (*.*)",
+        )
+        if not file_path:
+            return
+        lines = read_lrc_file(file_path)
+        self.lyrics_panel.set_lyrics(lines)
+        self.lyrics_panel.update_position(self.player.position_ms)
 
     # ── Slot Pemutaran Media & Antrean ─────────────────────────
 
@@ -599,6 +633,8 @@ class MainWindow(QMainWindow):
         )
         self.player_bar.set_favorite_state(bool(track.get("is_favorite")))
         self.now_playing_view.set_track(track, accent_color=accent)
+        self.lyrics_panel.set_accent_color(accent)
+        self.lyrics_panel.set_lyrics(load_lyrics_for_media(path))
         self.mini_player.set_track_info(
             title=track.get("title", ""),
             artist=track.get("artist", ""),
@@ -640,6 +676,8 @@ class MainWindow(QMainWindow):
         )
         self.player_bar.set_favorite_state(bool(video.get("is_favorite")))
         self.now_playing_view.set_track(video, accent_color=accent)
+        self.lyrics_panel.set_accent_color(accent)
+        self.lyrics_panel.set_lyrics(load_lyrics_for_media(path))
         self.mini_player.set_track_info(
             title=title,
             artist="Video",
@@ -728,6 +766,7 @@ class MainWindow(QMainWindow):
             self.top_search_bar.hide()
             self.video_top_bar.hide()
             self.queue_panel.hide()
+            self.lyrics_panel.hide()
             self.showFullScreen()
             self._last_cursor_pos = QCursor.pos()
             self._cursor_timer.start()

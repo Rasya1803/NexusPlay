@@ -48,6 +48,7 @@ class PlayerBar(QWidget):
     # Sinyal keluar ke MainWindow
     fullscreen_requested = Signal()
     queue_toggle_requested = Signal()
+    lyrics_toggle_requested = Signal()
     now_playing_requested = Signal()
     mini_player_requested = Signal()
     favorite_toggled = Signal()
@@ -234,6 +235,11 @@ class PlayerBar(QWidget):
         self.volume_slider.setFixedHeight(18)
         self.volume_slider.setStyleSheet(self._slider_style("#22D3EE"))
 
+        self.lyrics_button = QPushButton("🎤")
+        self.lyrics_button.setFixedSize(34, 34)
+        self.lyrics_button.setToolTip("Lirik Tersinkron (Ctrl+L)")
+        self.lyrics_button.setStyleSheet(self._button_style(round_shape=True))
+
         self.queue_button = QPushButton("☰")
         self.queue_button.setFixedSize(34, 34)
         self.queue_button.setToolTip("Antrean (Ctrl+Q)")
@@ -251,6 +257,7 @@ class PlayerBar(QWidget):
 
         right_layout.addWidget(self.mute_button)
         right_layout.addWidget(self.volume_slider)
+        right_layout.addWidget(self.lyrics_button)
         right_layout.addWidget(self.queue_button)
         right_layout.addWidget(self.mini_player_button)
         right_layout.addWidget(self.fullscreen_button)
@@ -396,6 +403,7 @@ class PlayerBar(QWidget):
         self.play_button.clicked.connect(self.player.toggle_pause)
         self.mute_button.clicked.connect(self.player.toggle_mute)
         self.fullscreen_button.clicked.connect(self.fullscreen_requested)
+        self.lyrics_button.clicked.connect(self.lyrics_toggle_requested)
         self.queue_button.clicked.connect(self.queue_toggle_requested)
         self.mini_player_button.clicked.connect(self.mini_player_requested)
         self.favorite_button.clicked.connect(self.favorite_toggled)
