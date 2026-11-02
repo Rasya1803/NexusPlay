@@ -436,3 +436,32 @@ def reorder_playlist_items(conn: sqlite3.Connection, playlist_id: int, media_ids
     conn.commit()
 
 
+# ── Resume Posisi Terakhir (M6 — FR-28) ────────────────────────
+
+def update_resume_position(
+    conn: sqlite3.Connection,
+    media_id: int,
+    position_ms: int,
+    duration_ms: int,
+) -> int:
+    """Simpan posisi terakhir media (`resume_ms`).
+
+    Aturan data PRD bagian 10:
+    - Bila posisi > 95% dari durasi (hampir selesai), `resume_ms` direset ke 0.
+    - Bila posisi <= 0, simpan 0.
+    Mengembalikan nilai `resume_ms` yang disimpan ke database.
+    """
+    if position_ms <= 0 or (duration_ms > 0 and position_ms > duration_ms * 0.95):
+        resume_val = 0
+    else:
+        resume_val = int(position_ms)
+
+    conn.execute(
+        "UPDATE media SET resume_ms = ? WHERE id = ?",
+        (resume_val, media_id),
+    )
+    conn.commit()
+    return resume_val
+
+
+

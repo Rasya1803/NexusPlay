@@ -13,6 +13,7 @@ Klik dua kali (double click) memancarkan sinyal `media_activated(media_dict)`.
 
 from pathlib import Path
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHBoxLayout,
@@ -98,7 +99,7 @@ class VideoView(QWidget):
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
         self.table.setColumnWidth(3, 100)
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
-        self.table.setColumnWidth(4, 80)
+        self.table.setColumnWidth(4, 150)
 
         self.table.setStyleSheet("""
             QTableWidget {
@@ -197,6 +198,7 @@ class VideoView(QWidget):
             res_str = f"{width}x{height}" if width and height else "—"
             size_str = format_bytes(v.get("file_size") or 0)
             duration = format_ms(v.get("duration_ms") or 0)
+            resume_ms = int(v.get("resume_ms") or 0)
 
             item_num = QTableWidgetItem(num)
             item_num.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -213,9 +215,15 @@ class VideoView(QWidget):
             item_size.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             item_size.setForeground(Qt.GlobalColor.darkGray)
 
-            item_dur = QTableWidgetItem(duration)
+            if resume_ms > 0:
+                dur_text = f"▶ {format_ms(resume_ms)} / {duration}"
+                item_dur = QTableWidgetItem(dur_text)
+                item_dur.setForeground(QColor("#22D3EE"))
+                item_dur.setToolTip(f"Lanjutkan dari {format_ms(resume_ms)}")
+            else:
+                item_dur = QTableWidgetItem(duration)
+                item_dur.setForeground(Qt.GlobalColor.darkGray)
             item_dur.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            item_dur.setForeground(Qt.GlobalColor.darkGray)
 
             self.table.setItem(row, 0, item_num)
             self.table.setItem(row, 1, item_title)

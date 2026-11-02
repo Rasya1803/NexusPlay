@@ -34,7 +34,17 @@ from nexusplay.core.queue import PlayQueue
 from nexusplay.db import repositories as repo
 from nexusplay.db.connection import open_database
 from nexusplay.library.scanner import LibraryScanner, ScanResult
-from nexusplay.ui.views import AlbumView, ArtistView, FoldersView, MusicView, PlaylistView, VideoView
+from nexusplay.ui.mini_player import MiniPlayer
+from nexusplay.ui.theme import extract_accent_color
+from nexusplay.ui.views import (
+    AlbumView,
+    ArtistView,
+    FoldersView,
+    MusicView,
+    NowPlayingView,
+    PlaylistView,
+    VideoView,
+)
 from nexusplay.ui.widgets import PlayerBar, QueuePanel, Sidebar, VideoWidget
 
 CONTROLS_HIDE_MS = 3000   # Durasi auto-hide bar pemutar saat fullscreen video (PRD 8.1)
@@ -52,6 +62,7 @@ class MainWindow(QMainWindow):
 
         self._was_maximized = False
         self._last_active_page = "music"
+        self._current_media: dict | None = None
 
         # ── Database & Komponen Utama ──────────────────────────
         self.db = open_database()
@@ -61,6 +72,7 @@ class MainWindow(QMainWindow):
         # Layar video (mpv butuh window_id native saat inisialisasi)
         self.video_widget = VideoWidget()
         self.player = Player(wid=self.video_widget.window_id(), parent=self)
+        self.mini_player = MiniPlayer(self.player)
 
         self._build_ui()
         self._build_fullscreen_helpers()
@@ -147,6 +159,11 @@ class MainWindow(QMainWindow):
         video_layout.addWidget(self.video_widget, 1)
 
         self.content_stack.addWidget(self.video_container)
+
+        # Index 7: Now Playing View (Layar Sedang Diputar — FR-60)
+        self.now_playing_view = NowPlayingView(self)
+        self.content_stack.addWidget(self.now_playing_view)
+
         body_layout.addWidget(self.content_stack, 1)
 
         # 3. Panel antrean kanan (QueuePanel)
@@ -185,6 +202,12 @@ class MainWindow(QMainWindow):
         self._cursor_timer.setInterval(200)
         self._cursor_timer.timeout.connect(self._check_cursor_moved)
 
+        # Timer simpan posisi resume video/audio panjang setiap 5 detik (FR-28)
+        self._resume_timer = QTimer(self)
+        self._resume_timer.setInterval(5000)
+        self._resume_timer.timeout.connect(self._save_current_resume_position)
+        self._resume_timer.start()
+
     # ── Koneksi Sinyal ─────────────────────────────────────────
 
     def _connect_signals(self) -> None:
@@ -203,10 +226,16 @@ class MainWindow(QMainWindow):
 
         # Antrean (Queue) -> Pemutar Lagu & Otomatis Lanjut (Auto-Advance)
         self.queue.track_changed.connect(self._on_queue_track_changed)
-        self.player.track_finished.connect(self.queue.next)
+        self.player.track_finished.connect(self._on_track_finished)
 
-        # Panel Antrean
+        # Panel Antrean, Layar Sedang Diputar (FR-60), & Mini-Player (FR-61)
         self.player_bar.queue_toggle_requested.connect(self._toggle_queue_panel)
+        self.player_bar.now_playing_requested.connect(self._toggle_now_playing_view)
+        self.player_bar.mini_player_requested.connect(self._enter_mini_player)
+        self.now_playing_view.back_requested.connect(self._exit_now_playing_view)
+        self.mini_player.prev_requested.connect(self.queue.prev)
+        self.mini_player.next_requested.connect(self.queue.next)
+        self.mini_player.restore_requested.connect(self._exit_mini_player)
         self.queue_panel.close_requested.connect(self.queue_panel.hide)
 
         # Video
@@ -277,7 +306,40 @@ class MainWindow(QMainWindow):
 
     def _exit_video_view(self) -> None:
         """Kembali dari layar video ke daftar video atau halaman sebelumnya."""
+        self._save_current_resume_position()
+        videos = [dict(r) for r in repo.list_media(self.db, kind="video", sort_by="title")]
+        self.video_view.set_videos(videos)
         self.sidebar.select_page(self._last_active_page or "videos")
+
+    def _toggle_now_playing_view(self) -> None:
+        """Buka atau tutup layar Sedang Diputar (FR-60)."""
+        if self.content_stack.currentIndex() == 7:
+            self._exit_now_playing_view()
+        elif self._current_media and self._current_media.get("kind") == "video":
+            self.content_stack.setCurrentIndex(6)
+        else:
+            self.content_stack.setCurrentIndex(7)
+
+    def _exit_now_playing_view(self) -> None:
+        """Kembali dari layar Sedang Diputar ke halaman aktif terakhir."""
+        self._on_page_changed(self._last_active_page or "music")
+
+    def _enter_mini_player(self) -> None:
+        """Tampilkan jendela Mini-Player selalu-di-atas (FR-61)."""
+        self.mini_player.show()
+        self.mini_player.raise_()
+        self.mini_player.activateWindow()
+        self.hide()
+
+    def _exit_mini_player(self) -> None:
+        """Kembali dari Mini-Player ke jendela utama."""
+        if self.mini_player.isVisible():
+            self.mini_player.blockSignals(True)
+            self.mini_player.hide()
+            self.mini_player.blockSignals(False)
+        self.show()
+        self.raise_()
+        self.activateWindow()
 
     def _toggle_queue_panel(self) -> None:
         """Tampilkan atau sembunyikan panel antrean sisi kanan."""
@@ -289,36 +351,107 @@ class MainWindow(QMainWindow):
 
     # ── Slot Pemutaran Media & Antrean ─────────────────────────
 
+    def _save_current_resume_position(self) -> None:
+        """Simpan posisi putar saat ini ke SQLite untuk video / audio panjang (FR-28)."""
+        if not self._current_media:
+            return
+        media_id = self._current_media.get("id")
+        if media_id is None:
+            return
+        dur_ms = self.player.duration_ms or int(self._current_media.get("duration_ms") or 0)
+        pos_ms = self.player.position_ms
+        is_video = self._current_media.get("kind") == "video"
+        is_long_audio = dur_ms >= 600_000  # >= 10 menit
+        if (is_video or is_long_audio) and dur_ms > 0 and pos_ms > 0:
+            repo.update_resume_position(self.db, int(media_id), pos_ms, dur_ms)
+
+    def _on_track_finished(self) -> None:
+        """Saat trek selesai diputar, reset posisi resume ke 0 lalu lanjut antrean."""
+        if self._current_media and self._current_media.get("id") is not None:
+            dur_ms = self.player.duration_ms or int(self._current_media.get("duration_ms") or 0)
+            repo.update_resume_position(self.db, int(self._current_media["id"]), 0, dur_ms)
+            if self._current_media.get("kind") == "video":
+                videos = [dict(r) for r in repo.list_media(self.db, kind="video", sort_by="title")]
+                self.video_view.set_videos(videos)
+        self.queue.next()
+
     def _on_play_tracks(self, tracks: list[dict], start_index: int) -> None:
         """Pengguna mengaktifkan daftar lagu (dari MusicView atau PlaylistView)."""
         self.queue.set_tracks(tracks, start_index)
 
     def _on_queue_track_changed(self, track: dict) -> None:
         """Lagu dalam antrean berubah (dipicu next/prev atau klik lagu)."""
+        self._save_current_resume_position()
+
         path = track.get("path")
         if not path or not Path(path).exists():
             QMessageBox.warning(self, "File tidak ditemukan", f"File audio tidak ditemukan di disk:\n{path}")
             return
 
-        self.player.play(path)
+        # Ambil data terbaru dari DB bila ada (untuk resume_ms audio panjang)
+        start_ms = 0
+        if track.get("id") is not None:
+            fresh = repo.get_media(self.db, int(track["id"]))
+            if fresh is not None:
+                track = dict(fresh)
+                if int(track.get("duration_ms") or 0) >= 600_000:
+                    start_ms = int(track.get("resume_ms") or 0)
+
+        self._current_media = track
+        cover_path = track.get("cover_path")
+        accent = extract_accent_color(cover_path)
+
+        self.player.play(path, start_ms=start_ms)
         self.player_bar.set_media_info(
             title=track.get("title", ""),
             artist=track.get("artist", ""),
-            cover_path=track.get("cover_path"),
+            cover_path=cover_path,
+            accent_color=accent,
+        )
+        self.now_playing_view.set_track(track, accent_color=accent)
+        self.mini_player.set_track_info(
+            title=track.get("title", ""),
+            artist=track.get("artist", ""),
+            kind=track.get("kind", "audio"),
+            cover_path=cover_path,
+            accent_color=accent,
         )
 
     def _play_video_track(self, video: dict) -> None:
-        """Putar video yang dipilih dan beralih ke layar video."""
+        """Putar video yang dipilih, lanjutkan dari resume_ms (FR-28), dan beralih ke layar video."""
+        self._save_current_resume_position()
+
         path = video.get("path")
         if not path or not Path(path).exists():
             QMessageBox.warning(self, "File tidak ditemukan", f"File video tidak ditemukan di disk:\n{path}")
             return
 
-        self.player.play(path)
+        start_ms = int(video.get("resume_ms") or 0)
+        if video.get("id") is not None:
+            fresh = repo.get_media(self.db, int(video["id"]))
+            if fresh is not None:
+                video = dict(fresh)
+                start_ms = int(video.get("resume_ms") or 0)
+
+        self._current_media = video
+        cover_path = video.get("cover_path")
+        accent = extract_accent_color(cover_path)
+        title = video.get("title") or Path(path).stem
+
+        self.player.play(path, start_ms=start_ms)
         self.player_bar.set_media_info(
-            title=video.get("title", ""),
+            title=title,
             artist="Video",
-            cover_path=None,
+            cover_path=cover_path,
+            accent_color=accent,
+        )
+        self.now_playing_view.set_track(video, accent_color=accent)
+        self.mini_player.set_track_info(
+            title=title,
+            artist="Video",
+            kind="video",
+            cover_path=cover_path,
+            accent_color=accent,
         )
         # Beralih ke layar pemutar video (index 6)
         self.content_stack.setCurrentIndex(6)
@@ -449,6 +582,10 @@ class MainWindow(QMainWindow):
     # ── Saat Jendela Ditutup ───────────────────────────────────
 
     def closeEvent(self, event) -> None:
+        self._resume_timer.stop()
+        self._save_current_resume_position()
+        self.mini_player.blockSignals(True)
+        self.mini_player.close()
         self.scanner.stop(wait=True)
         self.player.cleanup()
         self.db.close()

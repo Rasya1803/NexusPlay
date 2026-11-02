@@ -71,6 +71,7 @@ class Player(QObject):
         self._duration_ms: int = 0
         self._current_path: str = ""
         self._tracks: list[dict] = []
+        self._pending_seek_ms: int = 0
 
         # ── Inisialisasi mpv ───────────────────────────────────
         # ytdl=False                → tidak perlu youtube-dl
@@ -109,14 +110,18 @@ class Player(QObject):
 
     # ── Metode publik (dipanggil oleh UI) ──────────────────────
 
-    def play(self, path: str) -> None:
+    def play(self, path: str, start_ms: int = 0) -> None:
         """Mulai memutar file dari `path`.
 
-        Contoh: player.play("C:/Music/lagu.mp3")
+        Jika `start_ms > 0`, otomatis meloncat (seek) ke posisi
+        tersebut begitu file selesai dimuat oleh mpv (FR-28).
+
+        Contoh: player.play("C:/Music/lagu.mp3", start_ms=30000)
         """
         self._current_path = path
         self._duration_ms = 0
         self._tracks = []
+        self._pending_seek_ms = max(0, int(start_ms))
         self._mpv.play(path)
         self._mpv.pause = False
         self._poll_timer.start()
@@ -271,6 +276,13 @@ class Player(QObject):
                 if dur_ms != self._duration_ms:
                     self._duration_ms = dur_ms
                     self.duration_changed.emit(dur_ms)
+                # Jika ada permintaan resume posisi awal (FR-28),
+                # lakukan seek begitu durasi file sudah terdeteksi.
+                if self._pending_seek_ms > 0 and dur_ms > 0:
+                    target_ms = self._pending_seek_ms
+                    self._pending_seek_ms = 0
+                    if target_ms < dur_ms:
+                        self.seek(target_ms)
 
             # ── Daftar trek (hanya pancarkan kalau berubah) ────
             tracks = self._read_tracks()

@@ -13,7 +13,7 @@ tidak menyentuh backend mpv secara langsung (PRD 7.3).
 """
 
 from pathlib import Path
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QEvent, QObject, Qt, Signal
 from PySide6.QtGui import QPixmap, QPainter, QColor, QFont
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 
 from nexusplay.core.player import Player
 from nexusplay.core.queue import PlayQueue
+from nexusplay.ui.theme import COLORS, extract_accent_color
 
 
 def format_ms(ms: int) -> str:
@@ -47,6 +48,8 @@ class PlayerBar(QWidget):
     # Sinyal keluar ke MainWindow
     fullscreen_requested = Signal()
     queue_toggle_requested = Signal()
+    now_playing_requested = Signal()
+    mini_player_requested = Signal()
     next_requested = Signal()
     prev_requested = Signal()
 
@@ -60,6 +63,7 @@ class PlayerBar(QWidget):
         self.player = player
         self.queue = queue
         self._seeking = False
+        self._accent_color = COLORS["accent"]
 
         self.setFixedHeight(84)
         self.setObjectName("PlayerBar")
@@ -80,6 +84,9 @@ class PlayerBar(QWidget):
 
         # ── 1. Kiri: Info Track (Cover + Judul + Artis) ─────────
         self.info_widget = QWidget()
+        self.info_widget.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.info_widget.setToolTip("Klik untuk membuka layar Sedang Diputar")
+        self.info_widget.installEventFilter(self)
         info_layout = QHBoxLayout(self.info_widget)
         info_layout.setContentsMargins(0, 0, 0, 0)
         info_layout.setSpacing(12)
@@ -224,6 +231,11 @@ class PlayerBar(QWidget):
         self.queue_button.setToolTip("Antrean (Ctrl+Q)")
         self.queue_button.setStyleSheet(self._button_style(round_shape=True))
 
+        self.mini_player_button = QPushButton("⧉")
+        self.mini_player_button.setFixedSize(34, 34)
+        self.mini_player_button.setToolTip("Mini-Player Selalu di Atas (FR-61)")
+        self.mini_player_button.setStyleSheet(self._button_style(round_shape=True))
+
         self.fullscreen_button = QPushButton("⛶")
         self.fullscreen_button.setFixedSize(34, 34)
         self.fullscreen_button.setToolTip("Layar Penuh (F)")
@@ -232,6 +244,7 @@ class PlayerBar(QWidget):
         right_layout.addWidget(self.mute_button)
         right_layout.addWidget(self.volume_slider)
         right_layout.addWidget(self.queue_button)
+        right_layout.addWidget(self.mini_player_button)
         right_layout.addWidget(self.fullscreen_button)
         layout.addWidget(right_widget, 0)
 
@@ -280,6 +293,7 @@ class PlayerBar(QWidget):
         """
 
     def _set_default_cover(self) -> None:
+        self.cover_label.setPixmap(QPixmap())
         self.cover_label.setText("🎵")
         self.cover_label.setStyleSheet("""
             background-color: #1D2230;
@@ -288,10 +302,41 @@ class PlayerBar(QWidget):
             font-size: 20px;
         """)
 
-    def set_media_info(self, title: str, artist: str = "", cover_path: str | None = None) -> None:
-        """Perbarui informasi track yang tampil di bar."""
+    def set_accent_color(self, accent_color: str) -> None:
+        """Perbarui warna aksen tombol putar dan seek slider (FR-60)."""
+        self._accent_color = accent_color or COLORS["accent"]
+        self.seek_slider.setStyleSheet(self._slider_style(self._accent_color))
+        self.play_button.setStyleSheet(f"""
+            QPushButton {{
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {self._accent_color}, stop:1 #22D3EE);
+                color: #FFFFFF;
+                border: none;
+                border-radius: 21px;
+                font-size: 16px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background: #22D3EE;
+                color: #0B0D12;
+            }}
+            QPushButton:pressed {{
+                background: {self._accent_color};
+            }}
+        """)
+
+    def set_media_info(
+        self,
+        title: str,
+        artist: str = "",
+        cover_path: str | None = None,
+        accent_color: str | None = None,
+    ) -> None:
+        """Perbarui informasi track yang tampil di bar serta warna aksen sampul."""
         self.title_label.setText(title or "Tanpa Judul")
         self.artist_label.setText(artist or "Artis tidak diketahui")
+
+        resolved_accent = accent_color or extract_accent_color(cover_path)
+        self.set_accent_color(resolved_accent)
 
         if cover_path and Path(cover_path).exists():
             pixmap = QPixmap(cover_path)
@@ -301,9 +346,17 @@ class PlayerBar(QWidget):
                     Qt.AspectRatioMode.KeepAspectRatioByExpanding,
                     Qt.TransformationMode.SmoothTransformation
                 )
+                self.cover_label.setText("")
                 self.cover_label.setPixmap(scaled)
                 return
         self._set_default_cover()
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        """Tangkap klik pada area info kiri untuk membuka layar Sedang Diputar."""
+        if watched is self.info_widget and event.type() == QEvent.Type.MouseButtonRelease:
+            self.now_playing_requested.emit()
+            return True
+        return super().eventFilter(watched, event)
 
     # ── Koneksi Sinyal ─────────────────────────────────────────
 
@@ -313,6 +366,7 @@ class PlayerBar(QWidget):
         self.mute_button.clicked.connect(self.player.toggle_mute)
         self.fullscreen_button.clicked.connect(self.fullscreen_requested)
         self.queue_button.clicked.connect(self.queue_toggle_requested)
+        self.mini_player_button.clicked.connect(self.mini_player_requested)
 
         # Slider pengguna
         self.volume_slider.valueChanged.connect(self.player.set_volume)

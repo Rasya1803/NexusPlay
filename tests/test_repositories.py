@@ -284,3 +284,28 @@ def test_playlist_items_and_reorder(conn):
     assert [it["position"] for it in reordered] == [0, 1]
 
 
+# ── Tes Resume Posisi (M6) ─────────────────────────────────────
+
+def test_update_resume_position_saves_and_resets_above_95_percent(conn):
+    vid_id = repo.upsert_media(
+        conn,
+        make_media("C:\\v\\episode1.mkv", title="Episode 1", kind="video", duration_ms=100_000),
+    )
+
+    # 1. Posisi di tengah (50% = 50.000 ms) -> tersimpan 50.000
+    saved = repo.update_resume_position(conn, vid_id, position_ms=50_000, duration_ms=100_000)
+    assert saved == 50_000
+    assert repo.get_media(conn, vid_id)["resume_ms"] == 50_000
+
+    # 2. Posisi tepat 95% (95.000 ms) -> masih tersimpan 95.000
+    saved = repo.update_resume_position(conn, vid_id, position_ms=95_000, duration_ms=100_000)
+    assert saved == 95_000
+    assert repo.get_media(conn, vid_id)["resume_ms"] == 95_000
+
+    # 3. Posisi > 95% (96.000 ms) -> direset ke 0!
+    saved = repo.update_resume_position(conn, vid_id, position_ms=96_000, duration_ms=100_000)
+    assert saved == 0
+    assert repo.get_media(conn, vid_id)["resume_ms"] == 0
+
+
+
