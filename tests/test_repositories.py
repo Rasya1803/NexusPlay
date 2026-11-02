@@ -308,4 +308,113 @@ def test_update_resume_position_saves_and_resets_above_95_percent(conn):
     assert repo.get_media(conn, vid_id)["resume_ms"] == 0
 
 
+# ── Tes FTS5, Favorit, Riwayat, & Statistik (M7) ───────────────
+
+def test_fts5_search_by_title_artist_album_and_prefix(conn):
+    ar_cold = repo.get_or_create_artist(conn, "Coldplay")
+    al_parachutes = repo.get_or_create_album(conn, "Parachutes", ar_cold, 2000)
+
+    ar_queen = repo.get_or_create_artist(conn, "Queen")
+    al_col = repo.get_or_create_album(conn, "Collector's Edition", ar_queen, 1981)
+
+    m1 = repo.upsert_media(
+        conn,
+        make_media("C:\\m\\yellow.mp3", title="Yellow", artist_id=ar_cold, album_id=al_parachutes),
+    )
+    m2 = repo.upsert_media(
+        conn,
+        make_media("C:\\m\\dont_stop.mp3", title="Don't Stop Me Now", artist_id=ar_queen, album_id=al_col),
+    )
+    m3 = repo.upsert_media(
+        conn,
+        make_media("C:\\m\\coloratura.mp3", title="Coloratura", artist_id=ar_cold, album_id=al_parachutes),
+    )
+    _ = repo.upsert_media(
+        conn,
+        make_media("C:\\m\\other.mp3", title="Numb"),
+    )
+
+    # Ketik "col" harus menemukan:
+    # - m1 (artis "Coldplay")
+    # - m2 (album "Collector's Edition")
+    # - m3 (judul "Coloratura" & artis "Coldplay")
+    results = repo.search_media(conn, "col")
+    found_ids = {r["id"] for r in results}
+    assert found_ids == {m1, m2, m3}
+
+    # Pencarian dengan tanda kutip tunggal ("Don't") tidak boleh syntax error
+    quote_results = repo.search_media(conn, "Don't Stop")
+    assert [r["id"] for r in quote_results] == [m2]
+
+
+def test_toggle_and_list_favorites(conn):
+    m1 = repo.upsert_media(conn, make_media("C:\\m\\fav1.mp3", title="Fav 1"))
+    m2 = repo.upsert_media(conn, make_media("C:\\m\\fav2.mp3", title="Fav 2"))
+
+    assert repo.list_favorites(conn) == []
+
+    # Toggle m1 jadi favorit
+    assert repo.toggle_favorite(conn, m1) is True
+    favs = repo.list_favorites(conn)
+    assert [r["id"] for r in favs] == [m1]
+
+    # Toggle m1 lagi jadi bukan favorit
+    assert repo.toggle_favorite(conn, m1) is False
+    assert repo.list_favorites(conn) == []
+
+    # Set eksplisit m2 jadi favorit
+    repo.set_favorite(conn, m2, True)
+    assert [r["id"] for r in repo.list_favorites(conn)] == [m2]
+
+
+def test_should_count_play_and_record_play(conn):
+    # Lagu 4 menit (240.000 ms): harus >= 30.000 ms
+    assert repo.should_count_play(15_000, 240_000) is False
+    assert repo.should_count_play(30_000, 240_000) is True
+
+    # Lagu pendek 20 detik (20.000 ms): >= 50% (10.000 ms) sudah dihitung
+    assert repo.should_count_play(9_000, 20_000) is False
+    assert repo.should_count_play(10_000, 20_000) is True
+
+    m1 = repo.upsert_media(conn, make_media("C:\\m\\song.mp3", title="My Song"))
+    repo.record_play(conn, m1, 45_000)
+    repo.record_play(conn, m1, 60_000)
+
+    row = repo.get_media(conn, m1)
+    assert row["play_count"] == 2
+
+    hist = repo.list_recent_history(conn)
+    assert len(hist) == 2
+    assert hist[0]["id"] == m1
+
+
+def test_listening_stats_top_tracks_and_artists(conn):
+    ar1 = repo.get_or_create_artist(conn, "Daft Punk")
+    ar2 = repo.get_or_create_artist(conn, "The Weeknd")
+
+    m1 = repo.upsert_media(conn, make_media("C:\\m\\1.mp3", title="One More Time", artist_id=ar1))
+    m2 = repo.upsert_media(conn, make_media("C:\\m\\2.mp3", title="Starboy", artist_id=ar2))
+    repo.set_favorite(conn, m1, True)
+
+    # m1 diputar 3 kali, m2 diputar 1 kali
+    repo.record_play(conn, m1, 100_000)
+    repo.record_play(conn, m1, 120_000)
+    repo.record_play(conn, m1, 80_000)
+    repo.record_play(conn, m2, 50_000)
+
+    summary = repo.get_listening_summary(conn, days=28)
+    assert summary["total_plays"] == 4
+    assert summary["total_listened_ms"] == 350_000
+    assert summary["favorite_count"] == 1
+
+    top_tracks = repo.list_top_tracks(conn, days=28)
+    assert [t["id"] for t in top_tracks] == [m1, m2]
+    assert top_tracks[0]["period_plays"] == 3
+
+    top_artists = repo.list_top_artists(conn, days=28)
+    assert [a["artist"] for a in top_artists] == ["Daft Punk", "The Weeknd"]
+    assert top_artists[0]["period_plays"] == 3
+
+
+
 

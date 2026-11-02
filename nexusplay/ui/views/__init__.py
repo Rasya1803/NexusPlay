@@ -15,6 +15,8 @@ from nexusplay.ui.views.artist_view import ArtistView
 from nexusplay.ui.views.folders_view import FoldersView
 from nexusplay.ui.views.playlist_view import PlaylistView
 from nexusplay.ui.views.now_playing_view import NowPlayingView
+from nexusplay.ui.views.favorites_view import FavoritesView
+from nexusplay.ui.views.stats_view import StatsView
 
 __all__ = [
     "MusicView",
@@ -24,4 +26,6 @@ __all__ = [
     "FoldersView",
     "PlaylistView",
     "NowPlayingView",
+    "FavoritesView",
+    "StatsView",
 ]

@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QInputDialog,
     QLabel,
+    QLineEdit,
     QMainWindow,
     QMessageBox,
     QPushButton,
@@ -39,10 +40,12 @@ from nexusplay.ui.theme import extract_accent_color
 from nexusplay.ui.views import (
     AlbumView,
     ArtistView,
+    FavoritesView,
     FoldersView,
     MusicView,
     NowPlayingView,
     PlaylistView,
+    StatsView,
     VideoView,
 )
 from nexusplay.ui.widgets import PlayerBar, QueuePanel, Sidebar, VideoWidget
@@ -63,6 +66,8 @@ class MainWindow(QMainWindow):
         self._was_maximized = False
         self._last_active_page = "music"
         self._current_media: dict | None = None
+        self._current_listen_ms = 0
+        self._current_play_recorded = False
 
         # ── Database & Komponen Utama ──────────────────────────
         self.db = open_database()
@@ -98,7 +103,54 @@ class MainWindow(QMainWindow):
         self.sidebar = Sidebar(self)
         body_layout.addWidget(self.sidebar)
 
-        # 2. Content stack tengah
+        # 2. Kolom Tengah: Bar Pencarian Atas + Content Stack
+        center_column = QWidget()
+        center_col_layout = QVBoxLayout(center_column)
+        center_col_layout.setContentsMargins(0, 0, 0, 0)
+        center_col_layout.setSpacing(0)
+
+        # Bar Pencarian Cepat FTS5 (PRD 8.1 & FR-26)
+        self.top_search_bar = QWidget()
+        self.top_search_bar.setObjectName("TopSearchBar")
+        self.top_search_bar.setStyleSheet("""
+            QWidget#TopSearchBar {
+                background-color: #0B0D12;
+                border-bottom: 1px solid #1D2230;
+            }
+        """)
+        search_layout = QHBoxLayout(self.top_search_bar)
+        search_layout.setContentsMargins(24, 12, 24, 10)
+        search_layout.setSpacing(10)
+
+        search_icon = QLabel("🔍")
+        search_icon.setStyleSheet("color: #8B93A7; font-size: 14px; background: transparent;")
+
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("Cari lagu, artis, album, video… (Ctrl+F)")
+        self.search_input.setClearButtonEnabled(True)
+        self.search_input.setFixedHeight(36)
+        self.search_input.setMaximumWidth(460)
+        self.search_input.setStyleSheet("""
+            QLineEdit {
+                background-color: #151922;
+                color: #E8EAF0;
+                border: 1px solid #262C3B;
+                border-radius: 18px;
+                padding: 0 16px;
+                font-size: 13px;
+            }
+            QLineEdit:focus {
+                border: 1px solid #7C5CFF;
+                background-color: #1D2230;
+            }
+        """)
+
+        search_layout.addWidget(search_icon)
+        search_layout.addWidget(self.search_input, 1)
+        search_layout.addStretch()
+
+        center_col_layout.addWidget(self.top_search_bar)
+
         self.content_stack = QStackedWidget(self)
 
         # Index 0: Musik View
@@ -164,7 +216,16 @@ class MainWindow(QMainWindow):
         self.now_playing_view = NowPlayingView(self)
         self.content_stack.addWidget(self.now_playing_view)
 
-        body_layout.addWidget(self.content_stack, 1)
+        # Index 8: Favorites View (Layar Favorit ♥ — FR-25, FR-27)
+        self.favorites_view = FavoritesView(self)
+        self.content_stack.addWidget(self.favorites_view)
+
+        # Index 9: Stats View (Layar Statistik & Riwayat — FR-29, FR-30)
+        self.stats_view = StatsView(self)
+        self.content_stack.addWidget(self.stats_view)
+
+        center_col_layout.addWidget(self.content_stack, 1)
+        body_layout.addWidget(center_column, 1)
 
         # 3. Panel antrean kanan (QueuePanel)
         self.queue_panel = QueuePanel(self.queue, self)
@@ -189,6 +250,19 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence(Qt.Key.Key_R), self, self.queue.cycle_repeat_mode)
         QShortcut(QKeySequence(Qt.Key.Key_N), self, self.queue.next)
         QShortcut(QKeySequence(Qt.Key.Key_P), self, self.queue.prev)
+        QShortcut(QKeySequence("Ctrl+F"), self, self._focus_search)
+
+        # Timer debounce pencarian cepat FTS5 (FR-26)
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(80)
+        self._search_timer.timeout.connect(self._perform_search)
+
+        # Timer pelacak waktu dengar tiap 1 detik (FR-29, FR-30, Bagian 10)
+        self._listen_timer = QTimer(self)
+        self._listen_timer.setInterval(1000)
+        self._listen_timer.timeout.connect(self._on_listen_tick)
+        self._listen_timer.start()
 
         # Timer auto-hide player bar di mode fullscreen
         self._hide_timer = QTimer(self)
@@ -211,8 +285,9 @@ class MainWindow(QMainWindow):
     # ── Koneksi Sinyal ─────────────────────────────────────────
 
     def _connect_signals(self) -> None:
-        # Navigasi Sidebar -> Ganti Halaman
+        # Navigasi Sidebar & Pencarian FTS5
         self.sidebar.page_changed.connect(self._on_page_changed)
+        self.search_input.textChanged.connect(lambda _text: self._search_timer.start())
 
         # Aksi Pemutaran Musik & Playlist -> Masuk ke Antrean (M5)
         self.music_view.play_tracks_requested.connect(self._on_play_tracks)
@@ -220,7 +295,19 @@ class MainWindow(QMainWindow):
         self.music_view.append_queue_requested.connect(self.queue.append)
         self.music_view.add_to_playlist_requested.connect(self._add_track_to_playlist)
         self.music_view.new_playlist_with_track.connect(self._create_playlist_with_track)
+        self.music_view.favorite_toggle_requested.connect(self._on_toggle_favorite)
         self.music_view.add_folder_requested.connect(self._go_to_folders_page)
+
+        # Halaman Favorit (FR-25, FR-27)
+        self.favorites_view.play_tracks_requested.connect(self._on_play_tracks)
+        self.favorites_view.play_next_requested.connect(self.queue.play_next)
+        self.favorites_view.append_queue_requested.connect(self.queue.append)
+        self.favorites_view.add_to_playlist_requested.connect(self._add_track_to_playlist)
+        self.favorites_view.new_playlist_with_track.connect(self._create_playlist_with_track)
+        self.favorites_view.favorite_toggle_requested.connect(self._on_toggle_favorite)
+
+        # Halaman Statistik & Riwayat (FR-29, FR-30)
+        self.stats_view.play_media_requested.connect(self._on_play_single_media)
 
         self.playlist_view.play_tracks_requested.connect(self._on_play_tracks)
 
@@ -228,10 +315,11 @@ class MainWindow(QMainWindow):
         self.queue.track_changed.connect(self._on_queue_track_changed)
         self.player.track_finished.connect(self._on_track_finished)
 
-        # Panel Antrean, Layar Sedang Diputar (FR-60), & Mini-Player (FR-61)
+        # Panel Antrean, Layar Sedang Diputar (FR-60), Mini-Player (FR-61), & Favorit
         self.player_bar.queue_toggle_requested.connect(self._toggle_queue_panel)
         self.player_bar.now_playing_requested.connect(self._toggle_now_playing_view)
         self.player_bar.mini_player_requested.connect(self._enter_mini_player)
+        self.player_bar.favorite_toggled.connect(self._on_toggle_current_favorite)
         self.now_playing_view.back_requested.connect(self._exit_now_playing_view)
         self.mini_player.prev_requested.connect(self.queue.prev)
         self.mini_player.next_requested.connect(self.queue.next)
@@ -261,30 +349,84 @@ class MainWindow(QMainWindow):
 
     def _load_library_data(self) -> None:
         """Muat seluruh data library dari SQLite ke dalam masing-masing view."""
-        # 1. Musik
-        audios = [dict(r) for r in repo.list_media(self.db, kind="audio", sort_by="title")]
+        query = self.search_input.text().strip() if hasattr(self, "search_input") else ""
+
+        # 1. Musik, Video, & Favorit (mendukung filter pencarian FTS5)
+        audios = [dict(r) for r in repo.search_media(self.db, query, kind="audio")]
         self.music_view.set_tracks(audios)
 
-        # 2. Video
-        videos = [dict(r) for r in repo.list_media(self.db, kind="video", sort_by="title")]
+        videos = [dict(r) for r in repo.search_media(self.db, query, kind="video")]
         self.video_view.set_videos(videos)
 
-        # 3. Album
+        favs = [dict(r) for r in repo.search_media(self.db, query, favorite_only=True)]
+        self.favorites_view.set_tracks(favs)
+
+        # 2. Album
         albums = [dict(r) for r in repo.list_albums(self.db)]
         self.album_view.set_albums(albums)
 
-        # 4. Artis
+        # 3. Artis
         artists = [dict(r) for r in repo.list_artists(self.db)]
         self.artist_view.set_artists(artists)
 
-        # 5. Playlist
+        # 4. Playlist
         playlists = [dict(r) for r in repo.list_playlists(self.db)]
         self.music_view.set_playlists(playlists)
+        self.favorites_view.set_playlists(playlists)
         self.playlist_view.reload_playlists()
 
-        # 6. Folder
+        # 5. Folder
         folders = repo.list_library_folders(self.db)
         self.folders_view.set_folders(folders)
+
+        # 6. Statistik & Riwayat (FR-29, FR-30)
+        self._refresh_stats_view()
+
+    def _refresh_stats_view(self) -> None:
+        """Perbarui data di halaman Statistik & Riwayat."""
+        summary = repo.get_listening_summary(self.db, days=28)
+        top_tracks = [dict(r) for r in repo.list_top_tracks(self.db, days=28, limit=10)]
+        top_artists = [dict(r) for r in repo.list_top_artists(self.db, days=28, limit=10)]
+        recent_history = [dict(r) for r in repo.list_recent_history(self.db, limit=30)]
+        self.stats_view.set_stats_data(summary, top_tracks, top_artists, recent_history)
+
+    # ── Pencarian Cepat FTS5 & Favorit (M7) ────────────────────
+
+    def _focus_search(self) -> None:
+        """Fokuskan kursor ke kotak pencarian atas (Ctrl+F)."""
+        if not self.top_search_bar.isVisible():
+            self.top_search_bar.show()
+        self.search_input.setFocus()
+        self.search_input.selectAll()
+
+    def _perform_search(self) -> None:
+        """Jalankan pencarian cepat FTS5 saat pengguna mengetik."""
+        query = self.search_input.text().strip()
+        audios = [dict(r) for r in repo.search_media(self.db, query, kind="audio")]
+        videos = [dict(r) for r in repo.search_media(self.db, query, kind="video")]
+        favs = [dict(r) for r in repo.search_media(self.db, query, favorite_only=True)]
+
+        self.music_view.set_tracks(audios)
+        self.video_view.set_videos(videos)
+        self.favorites_view.set_tracks(favs)
+
+        # Bila pengguna mengetik di halaman selain Musik/Video/Favorit, alihkan ke Musik
+        if query and self._last_active_page not in ("music", "videos", "favorites"):
+            self.sidebar.select_page("music")
+
+    def _on_toggle_favorite(self, media_id: int) -> None:
+        """Nyalakan/matikan status favorit untuk media_id tertentu."""
+        is_fav = repo.toggle_favorite(self.db, media_id)
+        if self._current_media and self._current_media.get("id") == media_id:
+            self._current_media["is_favorite"] = 1 if is_fav else 0
+            self.player_bar.set_favorite_state(is_fav)
+        self._load_library_data()
+
+    def _on_toggle_current_favorite(self) -> None:
+        """Nyalakan/matikan status favorit untuk media yang sedang diputar di PlayerBar."""
+        if not self._current_media or self._current_media.get("id") is None:
+            return
+        self._on_toggle_favorite(int(self._current_media["id"]))
 
     # ── Slot Navigasi ──────────────────────────────────────────
 
@@ -297,7 +439,11 @@ class MainWindow(QMainWindow):
             "videos": 3,
             "playlists": 4,
             "folders": 5,
+            "favorites": 8,
+            "stats": 9,
         }
+        if page_id == "stats":
+            self._refresh_stats_view()
         idx = page_map.get(page_id, 0)
         self.content_stack.setCurrentIndex(idx)
 
@@ -351,6 +497,41 @@ class MainWindow(QMainWindow):
 
     # ── Slot Pemutaran Media & Antrean ─────────────────────────
 
+    def _on_listen_tick(self) -> None:
+        """Dipanggil tiap 1 detik: tambah durasi dengar & catat riwayat bila memenuhi syarat."""
+        if self.player.state != "playing" or not self._current_media:
+            return
+        media_id = self._current_media.get("id")
+        if media_id is None:
+            return
+
+        self._current_listen_ms += 1000
+        dur_ms = self.player.duration_ms or int(self._current_media.get("duration_ms") or 0)
+        if not self._current_play_recorded and repo.should_count_play(self._current_listen_ms, dur_ms):
+            repo.record_play(self.db, int(media_id), self._current_listen_ms)
+            self._current_play_recorded = True
+            if self.content_stack.currentIndex() == 9:
+                self._refresh_stats_view()
+
+    def _finalize_current_listen(self) -> None:
+        """Pastikan riwayat tercatat bila trek diganti/selesai setelah memenuhi syarat."""
+        if not self._current_media or self._current_media.get("id") is None:
+            return
+        media_id = int(self._current_media["id"])
+        dur_ms = self.player.duration_ms or int(self._current_media.get("duration_ms") or 0)
+        if not self._current_play_recorded and repo.should_count_play(self._current_listen_ms, dur_ms):
+            repo.record_play(self.db, media_id, self._current_listen_ms)
+            self._current_play_recorded = True
+        self._current_listen_ms = 0
+        self._current_play_recorded = False
+
+    def _on_play_single_media(self, media: dict) -> None:
+        """Putar satu item media dari halaman Statistik/Riwayat."""
+        if media.get("kind") == "video":
+            self._play_video_track(media)
+        else:
+            self._on_play_tracks([media], 0)
+
     def _save_current_resume_position(self) -> None:
         """Simpan posisi putar saat ini ke SQLite untuk video / audio panjang (FR-28)."""
         if not self._current_media:
@@ -366,7 +547,8 @@ class MainWindow(QMainWindow):
             repo.update_resume_position(self.db, int(media_id), pos_ms, dur_ms)
 
     def _on_track_finished(self) -> None:
-        """Saat trek selesai diputar, reset posisi resume ke 0 lalu lanjut antrean."""
+        """Saat trek selesai diputar, catat riwayat, reset resume ke 0, lalu lanjut antrean."""
+        self._finalize_current_listen()
         if self._current_media and self._current_media.get("id") is not None:
             dur_ms = self.player.duration_ms or int(self._current_media.get("duration_ms") or 0)
             repo.update_resume_position(self.db, int(self._current_media["id"]), 0, dur_ms)
@@ -376,19 +558,24 @@ class MainWindow(QMainWindow):
         self.queue.next()
 
     def _on_play_tracks(self, tracks: list[dict], start_index: int) -> None:
-        """Pengguna mengaktifkan daftar lagu (dari MusicView atau PlaylistView)."""
+        """Pengguna mengaktifkan daftar lagu (dari MusicView, FavoritesView, atau PlaylistView)."""
         self.queue.set_tracks(tracks, start_index)
 
     def _on_queue_track_changed(self, track: dict) -> None:
         """Lagu dalam antrean berubah (dipicu next/prev atau klik lagu)."""
+        self._finalize_current_listen()
         self._save_current_resume_position()
+
+        if track.get("kind") == "video":
+            self._play_video_track(track)
+            return
 
         path = track.get("path")
         if not path or not Path(path).exists():
             QMessageBox.warning(self, "File tidak ditemukan", f"File audio tidak ditemukan di disk:\n{path}")
             return
 
-        # Ambil data terbaru dari DB bila ada (untuk resume_ms audio panjang)
+        # Ambil data terbaru dari DB bila ada (untuk resume_ms audio panjang & is_favorite)
         start_ms = 0
         if track.get("id") is not None:
             fresh = repo.get_media(self.db, int(track["id"]))
@@ -398,6 +585,8 @@ class MainWindow(QMainWindow):
                     start_ms = int(track.get("resume_ms") or 0)
 
         self._current_media = track
+        self._current_listen_ms = 0
+        self._current_play_recorded = False
         cover_path = track.get("cover_path")
         accent = extract_accent_color(cover_path)
 
@@ -408,6 +597,7 @@ class MainWindow(QMainWindow):
             cover_path=cover_path,
             accent_color=accent,
         )
+        self.player_bar.set_favorite_state(bool(track.get("is_favorite")))
         self.now_playing_view.set_track(track, accent_color=accent)
         self.mini_player.set_track_info(
             title=track.get("title", ""),
@@ -419,6 +609,7 @@ class MainWindow(QMainWindow):
 
     def _play_video_track(self, video: dict) -> None:
         """Putar video yang dipilih, lanjutkan dari resume_ms (FR-28), dan beralih ke layar video."""
+        self._finalize_current_listen()
         self._save_current_resume_position()
 
         path = video.get("path")
@@ -434,6 +625,8 @@ class MainWindow(QMainWindow):
                 start_ms = int(video.get("resume_ms") or 0)
 
         self._current_media = video
+        self._current_listen_ms = 0
+        self._current_play_recorded = False
         cover_path = video.get("cover_path")
         accent = extract_accent_color(cover_path)
         title = video.get("title") or Path(path).stem
@@ -445,6 +638,7 @@ class MainWindow(QMainWindow):
             cover_path=cover_path,
             accent_color=accent,
         )
+        self.player_bar.set_favorite_state(bool(video.get("is_favorite")))
         self.now_playing_view.set_track(video, accent_color=accent)
         self.mini_player.set_track_info(
             title=title,
@@ -531,6 +725,7 @@ class MainWindow(QMainWindow):
         else:
             self._was_maximized = self.isMaximized()
             self.sidebar.hide()
+            self.top_search_bar.hide()
             self.video_top_bar.hide()
             self.queue_panel.hide()
             self.showFullScreen()
@@ -550,6 +745,7 @@ class MainWindow(QMainWindow):
         self._hide_timer.stop()
         self.video_widget.unsetCursor()
         self.sidebar.show()
+        self.top_search_bar.show()
         self.video_top_bar.show()
         self.player_bar.show()
 
@@ -582,7 +778,9 @@ class MainWindow(QMainWindow):
     # ── Saat Jendela Ditutup ───────────────────────────────────
 
     def closeEvent(self, event) -> None:
+        self._listen_timer.stop()
         self._resume_timer.stop()
+        self._finalize_current_listen()
         self._save_current_resume_position()
         self.mini_player.blockSignals(True)
         self.mini_player.close()

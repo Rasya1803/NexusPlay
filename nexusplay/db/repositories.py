@@ -14,6 +14,7 @@ Aturan di file ini:
 """
 
 import os
+import re
 import sqlite3
 from pathlib import Path
 
@@ -182,6 +183,26 @@ _UPSERT_SQL = (
 )
 
 
+def _sync_fts_row(conn: sqlite3.Connection, media_id: int) -> None:
+    """Sinkronkan satu baris di tabel virtual FTS5 `media_fts` sesuai `media.id`."""
+    conn.execute("DELETE FROM media_fts WHERE rowid = ?", (media_id,))
+    conn.execute(
+        """
+        INSERT INTO media_fts (rowid, title, artist, album)
+        SELECT
+            m.id,
+            COALESCE(m.title, ''),
+            COALESCE(ar.name, ''),
+            COALESCE(al.title, '')
+        FROM media m
+        LEFT JOIN artists ar ON ar.id = m.artist_id
+        LEFT JOIN albums  al ON al.id = m.album_id
+        WHERE m.id = ?
+        """,
+        (media_id,),
+    )
+
+
 def upsert_media(conn: sqlite3.Connection, values: dict) -> int:
     """Masukkan media baru, atau perbarui kalau path-nya sudah ada.
 
@@ -193,7 +214,9 @@ def upsert_media(conn: sqlite3.Connection, values: dict) -> int:
     Mengembalikan id media.
     """
     row = conn.execute(_UPSERT_SQL, values).fetchone()
-    return row["id"]
+    media_id = row["id"]
+    _sync_fts_row(conn, media_id)
+    return media_id
 
 
 def delete_media_by_paths(conn: sqlite3.Connection, paths: list[str]) -> None:
@@ -201,7 +224,10 @@ def delete_media_by_paths(conn: sqlite3.Connection, paths: list[str]) -> None:
 
     Riwayat dan item playlist ikut terhapus otomatis karena ON DELETE CASCADE.
     """
+    if not paths:
+        return
     conn.executemany("DELETE FROM media WHERE path = ?", [(p,) for p in paths])
+    conn.execute("DELETE FROM media_fts WHERE rowid NOT IN (SELECT id FROM media)")
 
 
 def delete_orphans(conn: sqlite3.Connection) -> None:
@@ -211,6 +237,7 @@ def delete_orphans(conn: sqlite3.Connection) -> None:
     hasil `x NOT IN (...)` jadi NULL (bukan TRUE) dan TIDAK ADA baris
     yang terhapus. Jebakan klasik SQL!
     """
+    conn.execute("DELETE FROM media_fts WHERE rowid NOT IN (SELECT id FROM media)")
     conn.execute(
         "DELETE FROM albums WHERE id NOT IN "
         "(SELECT album_id FROM media WHERE album_id IS NOT NULL)"
@@ -236,10 +263,12 @@ def list_media(
     conn: sqlite3.Connection,
     kind: str | None = None,
     sort_by: str = "title",
+    favorite_only: bool = False,
 ) -> list[sqlite3.Row]:
     """Ambil daftar media dengan info artis dan album untuk UI.
 
     kind: 'audio', 'video', atau None (semua).
+    favorite_only: bila True, hanya tampilkan yang `is_favorite = 1`.
     """
     sql = """
         SELECT
@@ -253,10 +282,16 @@ def list_media(
         LEFT JOIN artists ar ON ar.id = m.artist_id
         LEFT JOIN albums  al ON al.id = m.album_id
     """
+    conditions: list[str] = []
     params: list = []
     if kind:
-        sql += " WHERE m.kind = ?"
+        conditions.append("m.kind = ?")
         params.append(kind)
+    if favorite_only:
+        conditions.append("m.is_favorite = 1")
+
+    if conditions:
+        sql += " WHERE " + " AND ".join(conditions)
 
     if sort_by == "track_no":
         sql += " ORDER BY al.title COLLATE NOCASE, m.track_no ASC, m.title COLLATE NOCASE"
@@ -462,6 +497,286 @@ def update_resume_position(
     )
     conn.commit()
     return resume_val
+
+
+# ── Pencarian Cepat FTS5 (M7 — FR-26) ──────────────────────────
+
+def rebuild_fts_index(conn: sqlite3.Connection) -> int:
+    """Bangun ulang seluruh indeks pencarian cepat FTS5 (`media_fts`).
+
+    Menyalin `title`, `artist`, dan `album` dari semua media ke tabel
+    virtual `media_fts` dengan `rowid = media.id`.
+    """
+    conn.execute("DELETE FROM media_fts")
+    cur = conn.execute(
+        """
+        INSERT INTO media_fts (rowid, title, artist, album)
+        SELECT
+            m.id,
+            COALESCE(m.title, ''),
+            COALESCE(ar.name, ''),
+            COALESCE(al.title, '')
+        FROM media m
+        LEFT JOIN artists ar ON ar.id = m.artist_id
+        LEFT JOIN albums  al ON al.id = m.album_id
+        """
+    )
+    conn.commit()
+    return cur.rowcount
+
+
+def _build_fts_query(raw_query: str) -> str:
+    """Ubah teks ketikan pengguna menjadi ekspresi prefix FTS5 yang aman.
+
+    Contoh:
+    - "col"        → '"col"*'
+    - "cold viva"  → '"cold"* "viva"*'
+    - "Don't Stop" → '"Don"* "t"* "Stop"*'
+    Tanda kutip mencegah kata kunci FTS5 (AND, OR, NOT) atau tanda baca
+    memicu syntax error, sedangkan `*` mengaktifkan pencarian awalan (prefix).
+    """
+    tokens = re.findall(r"\w+", raw_query, flags=re.UNICODE)
+    if not tokens:
+        return ""
+    return " ".join(f'"{token}"*' for token in tokens)
+
+
+def search_media(
+    conn: sqlite3.Connection,
+    query: str,
+    kind: str | None = None,
+    favorite_only: bool = False,
+) -> list[sqlite3.Row]:
+    """Cari media lintas judul, artis, dan album menggunakan SQLite FTS5.
+
+    Bila `query` kosong, mengembalikan hasil `list_media` biasa.
+    """
+    cleaned = query.strip()
+    if not cleaned:
+        return list_media(conn, kind=kind, favorite_only=favorite_only)
+
+    fts_expr = _build_fts_query(cleaned)
+    if not fts_expr:
+        return []
+
+    # Pastikan indeks FTS5 sudah terisi bila database berasal dari M3
+    fts_count = conn.execute("SELECT COUNT(*) AS n FROM media_fts").fetchone()["n"]
+    if fts_count == 0:
+        media_count = conn.execute("SELECT COUNT(*) AS n FROM media").fetchone()["n"]
+        if media_count > 0:
+            rebuild_fts_index(conn)
+
+    sql = """
+        SELECT
+            m.id, m.kind, m.path, m.title, m.track_no, m.genre,
+            m.duration_ms, m.width, m.height, m.file_size,
+            m.is_favorite, m.resume_ms, m.play_count,
+            ar.name AS artist,
+            al.title AS album,
+            al.cover_path AS cover_path
+        FROM media_fts fts
+        JOIN media m ON m.id = fts.rowid
+        LEFT JOIN artists ar ON ar.id = m.artist_id
+        LEFT JOIN albums  al ON al.id = m.album_id
+        WHERE media_fts MATCH ?
+    """
+    params: list = [fts_expr]
+    if kind:
+        sql += " AND m.kind = ?"
+        params.append(kind)
+    if favorite_only:
+        sql += " AND m.is_favorite = 1"
+
+    sql += " ORDER BY bm25(media_fts), m.title COLLATE NOCASE"
+    return conn.execute(sql, params).fetchall()
+
+
+# ── Favorit (M7 — FR-25, FR-27) ────────────────────────────────
+
+def toggle_favorite(conn: sqlite3.Connection, media_id: int) -> bool:
+    """Nyalakan/matikan status favorit (`is_favorite`) untuk satu media.
+
+    Mengembalikan True bila sekarang menjadi favorit (1), False bila tidak (0).
+    """
+    row = conn.execute("SELECT is_favorite FROM media WHERE id = ?", (media_id,)).fetchone()
+    if row is None:
+        return False
+    new_val = 0 if row["is_favorite"] else 1
+    conn.execute("UPDATE media SET is_favorite = ? WHERE id = ?", (new_val, media_id))
+    conn.commit()
+    return bool(new_val)
+
+
+def set_favorite(conn: sqlite3.Connection, media_id: int, is_favorite: bool) -> None:
+    """Atur status favorit secara eksplisit."""
+    conn.execute(
+        "UPDATE media SET is_favorite = ? WHERE id = ?",
+        (1 if is_favorite else 0, media_id),
+    )
+    conn.commit()
+
+
+def list_favorites(conn: sqlite3.Connection, kind: str | None = None) -> list[sqlite3.Row]:
+    """Ambil semua media yang ditandai sebagai favorit (`is_favorite = 1`)."""
+    return list_media(conn, kind=kind, favorite_only=True)
+
+
+# ── Riwayat Putar & Statistik (M7 — FR-29, FR-30) ──────────────
+
+def should_count_play(listened_ms: int, duration_ms: int) -> bool:
+    """Aturan PRD Bagian 10:
+    Hitung sebagai 'diputar' bila didengar >= 30 detik (30.000 ms)
+    ATAU >= 50% durasi (mana yang tercapai lebih dulu).
+    """
+    if listened_ms < 0:
+        return False
+    if listened_ms >= 30_000:
+        return True
+    if duration_ms > 0 and listened_ms >= duration_ms * 0.5:
+        return True
+    return False
+
+
+def record_play(
+    conn: sqlite3.Connection,
+    media_id: int,
+    listened_ms: int,
+) -> None:
+    """Catat satu kali pemutaran ke `media` dan `play_history`.
+
+    - Menaikkan `play_count` sebanyak 1.
+    - Memperbarui `last_played_at` ke waktu sekarang.
+    - Menambahkan baris baru di tabel `play_history`.
+    """
+    safe_ms = max(0, int(listened_ms))
+    conn.execute(
+        """
+        UPDATE media
+        SET play_count = play_count + 1,
+            last_played_at = datetime('now')
+        WHERE id = ?
+        """,
+        (media_id,),
+    )
+    conn.execute(
+        """
+        INSERT INTO play_history (media_id, played_at, listened_ms)
+        VALUES (?, datetime('now'), ?)
+        """,
+        (media_id, safe_ms),
+    )
+    conn.commit()
+
+
+def list_recent_history(conn: sqlite3.Connection, limit: int = 30) -> list[sqlite3.Row]:
+    """Daftar riwayat media yang terakhir diputar (paling baru di atas)."""
+    sql = """
+        SELECT
+            ph.id AS history_id,
+            ph.played_at,
+            ph.listened_ms,
+            m.id, m.kind, m.path, m.title, m.track_no, m.genre,
+            m.duration_ms, m.width, m.height, m.file_size,
+            m.is_favorite, m.resume_ms, m.play_count,
+            ar.name AS artist,
+            al.title AS album,
+            al.cover_path AS cover_path
+        FROM play_history ph
+        JOIN media m ON m.id = ph.media_id
+        LEFT JOIN artists ar ON ar.id = m.artist_id
+        LEFT JOIN albums  al ON al.id = m.album_id
+        ORDER BY ph.played_at DESC, ph.id DESC
+        LIMIT ?
+    """
+    return conn.execute(sql, (limit,)).fetchall()
+
+
+def list_top_tracks(
+    conn: sqlite3.Connection,
+    days: int = 28,
+    limit: int = 10,
+) -> list[sqlite3.Row]:
+    """Top lagu/media yang paling sering diputar dalam `days` hari terakhir (default 4 minggu).
+
+    Menggunakan agregasi SQL: `GROUP BY m.id` dan `ORDER BY COUNT(*) DESC`.
+    """
+    window_param = f"-{int(days)} days"
+    sql = """
+        SELECT
+            m.id, m.kind, m.path, m.title, m.track_no, m.genre,
+            m.duration_ms, m.width, m.height, m.file_size,
+            m.is_favorite, m.resume_ms, m.play_count,
+            ar.name AS artist,
+            al.title AS album,
+            al.cover_path AS cover_path,
+            COUNT(ph.id) AS period_plays,
+            COALESCE(SUM(ph.listened_ms), 0) AS period_listened_ms
+        FROM play_history ph
+        JOIN media m ON m.id = ph.media_id
+        LEFT JOIN artists ar ON ar.id = m.artist_id
+        LEFT JOIN albums  al ON al.id = m.album_id
+        WHERE ph.played_at >= datetime('now', ?)
+        GROUP BY m.id
+        ORDER BY period_plays DESC, period_listened_ms DESC, m.title COLLATE NOCASE
+        LIMIT ?
+    """
+    return conn.execute(sql, (window_param, limit)).fetchall()
+
+
+def list_top_artists(
+    conn: sqlite3.Connection,
+    days: int = 28,
+    limit: int = 10,
+) -> list[sqlite3.Row]:
+    """Top artis yang paling sering didengar dalam `days` hari terakhir (default 4 minggu)."""
+    window_param = f"-{int(days)} days"
+    sql = """
+        SELECT
+            ar.id,
+            ar.name AS artist,
+            COUNT(ph.id) AS period_plays,
+            COUNT(DISTINCT m.id) AS track_count,
+            COALESCE(SUM(ph.listened_ms), 0) AS period_listened_ms
+        FROM play_history ph
+        JOIN media m ON m.id = ph.media_id
+        JOIN artists ar ON ar.id = m.artist_id
+        WHERE ph.played_at >= datetime('now', ?)
+        GROUP BY ar.id
+        ORDER BY period_plays DESC, period_listened_ms DESC, ar.name COLLATE NOCASE
+        LIMIT ?
+    """
+    return conn.execute(sql, (window_param, limit)).fetchall()
+
+
+def get_listening_summary(conn: sqlite3.Connection, days: int = 28) -> dict[str, int]:
+    """Ringkasan angka statistik untuk kartu di halaman Statistik."""
+    window_param = f"-{int(days)} days"
+    period_row = conn.execute(
+        """
+        SELECT
+            COUNT(id) AS total_plays,
+            COALESCE(SUM(listened_ms), 0) AS total_listened_ms
+        FROM play_history
+        WHERE played_at >= datetime('now', ?)
+        """,
+        (window_param,),
+    ).fetchone()
+
+    all_time_row = conn.execute(
+        "SELECT COALESCE(SUM(listened_ms), 0) AS all_time_ms FROM play_history"
+    ).fetchone()
+
+    fav_row = conn.execute(
+        "SELECT COUNT(*) AS fav_count FROM media WHERE is_favorite = 1"
+    ).fetchone()
+
+    return {
+        "total_plays": int(period_row["total_plays"]),
+        "total_listened_ms": int(period_row["total_listened_ms"]),
+        "all_time_listened_ms": int(all_time_row["all_time_ms"]),
+        "favorite_count": int(fav_row["fav_count"]),
+    }
+
 
 
 

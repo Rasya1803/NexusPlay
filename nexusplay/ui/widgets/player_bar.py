@@ -50,6 +50,7 @@ class PlayerBar(QWidget):
     queue_toggle_requested = Signal()
     now_playing_requested = Signal()
     mini_player_requested = Signal()
+    favorite_toggled = Signal()
     next_requested = Signal()
     prev_requested = Signal()
 
@@ -122,6 +123,13 @@ class PlayerBar(QWidget):
         info_layout.addWidget(self.cover_label)
         info_layout.addLayout(text_layout)
         layout.addWidget(self.info_widget, 0)
+
+        self.favorite_button = QPushButton("♡")
+        self.favorite_button.setFixedSize(32, 32)
+        self.favorite_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.favorite_button.setToolTip("Tandai Favorit")
+        self.set_favorite_state(False)
+        layout.addWidget(self.favorite_button, 0)
 
         # ── 2. Tengah: Kontrol & Seek Bar ────────────────────────
         center_widget = QWidget()
@@ -351,6 +359,29 @@ class PlayerBar(QWidget):
                 return
         self._set_default_cover()
 
+    def set_favorite_state(self, is_favorite: bool) -> None:
+        """Perbarui tampilan tombol hati favorit (FR-27)."""
+        if is_favorite:
+            self.favorite_button.setText("♥")
+            self.favorite_button.setToolTip("Hapus dari Favorit")
+            self.favorite_button.setStyleSheet("""
+                QPushButton {
+                    background-color: rgba(255, 92, 122, 0.16);
+                    color: #FF5C7A;
+                    border: 1px solid #FF5C7A;
+                    border-radius: 16px;
+                    font-size: 14px;
+                }
+                QPushButton:hover {
+                    background-color: #FF5C7A;
+                    color: #FFFFFF;
+                }
+            """)
+        else:
+            self.favorite_button.setText("♡")
+            self.favorite_button.setToolTip("Tandai Favorit")
+            self.favorite_button.setStyleSheet(self._button_style(round_shape=True))
+
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
         """Tangkap klik pada area info kiri untuk membuka layar Sedang Diputar."""
         if watched is self.info_widget and event.type() == QEvent.Type.MouseButtonRelease:
@@ -367,6 +398,7 @@ class PlayerBar(QWidget):
         self.fullscreen_button.clicked.connect(self.fullscreen_requested)
         self.queue_button.clicked.connect(self.queue_toggle_requested)
         self.mini_player_button.clicked.connect(self.mini_player_requested)
+        self.favorite_button.clicked.connect(self.favorite_toggled)
 
         # Slider pengguna
         self.volume_slider.valueChanged.connect(self.player.set_volume)

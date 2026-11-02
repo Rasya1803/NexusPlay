@@ -13,6 +13,7 @@ sehingga langsung diputar oleh pemutar.
 """
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHBoxLayout,
@@ -38,6 +39,7 @@ class MusicView(QWidget):
     append_queue_requested = Signal(dict)         # (track)
     add_to_playlist_requested = Signal(int, dict) # (playlist_id, track)
     new_playlist_with_track = Signal(dict)        # (track)
+    favorite_toggle_requested = Signal(int)       # (media_id)
     add_folder_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -75,8 +77,8 @@ class MusicView(QWidget):
 
         # 1. Halaman Tabel Lagu
         self.table = QTableWidget()
-        self.table.setColumnCount(5)
-        self.table.setHorizontalHeaderLabels(["#", "Judul", "Artis", "Album", "Durasi"])
+        self.table.setColumnCount(6)
+        self.table.setHorizontalHeaderLabels(["#", "♥", "Judul", "Artis", "Album", "Durasi"])
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -88,12 +90,14 @@ class MusicView(QWidget):
         # Kolom ukuran proporsional
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        self.table.setColumnWidth(0, 48)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.table.setColumnWidth(0, 44)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+        self.table.setColumnWidth(1, 38)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
-        self.table.setColumnWidth(4, 76)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)
+        self.table.setColumnWidth(5, 76)
 
         # Style tabel modern
         self.table.setStyleSheet("""
@@ -126,6 +130,7 @@ class MusicView(QWidget):
 
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._show_context_menu)
+        self.table.cellClicked.connect(self._on_cell_clicked)
         self.table.cellDoubleClicked.connect(self._on_cell_double_clicked)
         self.stack.addWidget(self.table)
 
@@ -189,6 +194,7 @@ class MusicView(QWidget):
 
         for row, t in enumerate(tracks):
             track_num = str(t.get("track_no") or (row + 1))
+            is_fav = bool(t.get("is_favorite"))
             title = t.get("title") or "Tanpa Judul"
             artist = t.get("artist") or "Artis tidak diketahui"
             album = t.get("album") or "Album tidak diketahui"
@@ -197,6 +203,11 @@ class MusicView(QWidget):
             item_num = QTableWidgetItem(track_num)
             item_num.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             item_num.setForeground(Qt.GlobalColor.darkGray)
+
+            item_fav = QTableWidgetItem("♥" if is_fav else "♡")
+            item_fav.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            item_fav.setForeground(QColor("#FF5C7A") if is_fav else QColor("#555E70"))
+            item_fav.setToolTip("Klik untuk hapus dari Favorit" if is_fav else "Klik untuk tandai Favorit")
 
             item_title = QTableWidgetItem(title)
             item_title.setToolTip(t.get("path", ""))
@@ -212,17 +223,27 @@ class MusicView(QWidget):
             item_dur.setForeground(Qt.GlobalColor.darkGray)
 
             self.table.setItem(row, 0, item_num)
-            self.table.setItem(row, 1, item_title)
-            self.table.setItem(row, 2, item_artist)
-            self.table.setItem(row, 3, item_album)
-            self.table.setItem(row, 4, item_dur)
+            self.table.setItem(row, 1, item_fav)
+            self.table.setItem(row, 2, item_title)
+            self.table.setItem(row, 3, item_artist)
+            self.table.setItem(row, 4, item_album)
+            self.table.setItem(row, 5, item_dur)
             self.table.setRowHeight(row, 38)
 
     def set_playlists(self, playlists: list[dict]) -> None:
         """Simpan daftar playlist aktif untuk pilihan menu klik kanan."""
         self._playlists = playlists
 
-    def _on_cell_double_clicked(self, row: int, _col: int) -> None:
+    def _on_cell_clicked(self, row: int, col: int) -> None:
+        """Klik tunggal pada kolom hati (kolom 1) mengubah status favorit."""
+        if col == 1 and 0 <= row < len(self._tracks):
+            media_id = self._tracks[row].get("id")
+            if media_id is not None:
+                self.favorite_toggle_requested.emit(int(media_id))
+
+    def _on_cell_double_clicked(self, row: int, col: int) -> None:
+        if col == 1:
+            return
         if 0 <= row < len(self._tracks):
             # Putar lagu yang diklik dan muat seluruh daftar ke antrean (seperti Spotify)
             self.play_tracks_requested.emit(self._tracks, row)
@@ -233,6 +254,7 @@ class MusicView(QWidget):
             return
 
         track = self._tracks[row]
+        is_fav = bool(track.get("is_favorite"))
         menu = QMenu(self.window())
         menu.setStyleSheet("""
             QMenu {
@@ -255,6 +277,7 @@ class MusicView(QWidget):
         action_play = menu.addAction("▶  Putar Lagu Ini")
         action_play_next = menu.addAction("⏭  Putar Berikutnya")
         action_append = menu.addAction("➕  Tambah ke Antrean")
+        action_fav = menu.addAction("♡  Hapus dari Favorit" if is_fav else "♥  Tandai Favorit")
 
         menu.addSeparator()
         playlist_submenu = menu.addMenu("≡  Tambahkan ke Playlist")
@@ -275,6 +298,8 @@ class MusicView(QWidget):
             self.play_next_requested.emit(track)
         elif selected == action_append:
             self.append_queue_requested.emit(track)
+        elif selected == action_fav and track.get("id") is not None:
+            self.favorite_toggle_requested.emit(int(track["id"]))
         elif selected == action_new_pl:
             self.new_playlist_with_track.emit(track)
         elif selected and selected.data() is not None:
