@@ -1,6 +1,6 @@
-"""NexusPlay — LyricsPanel widget (M8 — FR-62).
+"""NexusPlay — LyricsPanel widget (M8 — FR-62, Minimal Dark).
 
-Panel sisi kanan untuk menampilkan lirik tersinkron (`.lrc`):
+Panel sisi kanan (320 px) untuk menampilkan lirik tersinkron (`.lrc`):
 - Menyorot baris aktif sesuai waktu putar (`position_ms`) secara real-time.
 - Menggulir otomatis (auto-scroll) agar baris aktif selalu berada di tengah panel.
 - Klik pada baris lirik mana pun akan melompatkan lagu (seek) ke waktu baris tersebut.
@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from nexusplay.library.lyrics import LyricLine, active_line_index
-from nexusplay.ui.theme import COLORS
+from nexusplay.ui.theme import COLORS, icon_pixmap, make_font, set_button_icon
 
 
 class LyricsPanel(QWidget):
@@ -38,14 +38,8 @@ class LyricsPanel(QWidget):
         self._active_index: int = -1
         self._accent_color: str = COLORS["accent"]
 
-        self.setFixedWidth(300)
+        self.setFixedWidth(320)
         self.setObjectName("LyricsPanel")
-        self.setStyleSheet("""
-            QWidget#LyricsPanel {
-                background-color: #151922;
-                border-left: 1px solid #262C3B;
-            }
-        """)
 
         self._build_ui()
 
@@ -58,39 +52,20 @@ class LyricsPanel(QWidget):
         header_layout = QHBoxLayout()
         header_layout.setContentsMargins(0, 0, 0, 0)
 
-        title_label = QLabel("🎤 Lirik")
-        title_label.setStyleSheet("color: #E8EAF0; font-size: 16px; font-weight: bold;")
+        title_label = QLabel("Lirik")
+        title_label.setProperty("role", "heading")
 
         self.open_lrc_btn = QPushButton("Muat .lrc")
+        self.open_lrc_btn.setProperty("variant", "ghost")
         self.open_lrc_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.open_lrc_btn.setToolTip("Pilih file .lrc dari komputer")
-        self.open_lrc_btn.setStyleSheet("""
-            QPushButton {
-                background: transparent;
-                color: #8B93A7;
-                border: none;
-                font-size: 12px;
-                padding: 4px 6px;
-            }
-            QPushButton:hover {
-                color: #22D3EE;
-            }
-        """)
         self.open_lrc_btn.clicked.connect(self.load_lrc_requested)
 
-        self.close_btn = QPushButton("✕")
-        self.close_btn.setFixedSize(24, 24)
-        self.close_btn.setStyleSheet("""
-            QPushButton {
-                background: transparent;
-                color: #8B93A7;
-                border: none;
-                font-size: 14px;
-            }
-            QPushButton:hover {
-                color: #FFFFFF;
-            }
-        """)
+        self.close_btn = QPushButton()
+        self.close_btn.setProperty("variant", "icon")
+        self.close_btn.setFixedSize(28, 28)
+        self.close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        set_button_icon(self.close_btn, "x", COLORS["text-muted"], 16)
         self.close_btn.clicked.connect(self.close_requested)
 
         header_layout.addWidget(title_label)
@@ -109,21 +84,6 @@ class LyricsPanel(QWidget):
         self.list_widget.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
         self.list_widget.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.list_widget.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.list_widget.setStyleSheet("""
-            QListWidget {
-                background-color: transparent;
-                border: none;
-                outline: none;
-            }
-            QListWidget::item {
-                padding: 8px 10px;
-                border-radius: 8px;
-                margin-bottom: 2px;
-            }
-            QListWidget::item:hover {
-                background-color: #1D2230;
-            }
-        """)
         self.list_widget.itemClicked.connect(self._on_item_clicked)
         self.stack.addWidget(self.list_widget)
 
@@ -133,39 +93,24 @@ class LyricsPanel(QWidget):
         empty_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         empty_layout.setSpacing(10)
 
-        icon_lbl = QLabel("🎶")
-        icon_lbl.setStyleSheet("font-size: 36px; background: transparent;")
+        icon_lbl = QLabel()
+        icon_lbl.setPixmap(icon_pixmap("mic-vocal", COLORS["text-muted"], 36))
         icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.empty_title = QLabel("Belum ada lirik tersinkron")
-        self.empty_title.setStyleSheet("color: #E8EAF0; font-size: 14px; font-weight: 600;")
+        self.empty_title.setProperty("role", "heading")
         self.empty_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         empty_desc = QLabel(
             "Letakkan file .lrc dengan nama yang sama\n"
             "di sebelah file lagu, atau muat manual:"
         )
-        empty_desc.setStyleSheet("color: #8B93A7; font-size: 12px;")
+        empty_desc.setProperty("role", "muted")
         empty_desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        load_btn = QPushButton("📄 Pilih File .lrc…")
+        load_btn = QPushButton("Pilih File .lrc…")
         load_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        load_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #1D2230;
-                color: #E8EAF0;
-                border: 1px solid #262C3B;
-                border-radius: 8px;
-                padding: 8px 14px;
-                font-size: 12px;
-                font-weight: 600;
-            }
-            QPushButton:hover {
-                background-color: #7C5CFF;
-                border-color: #7C5CFF;
-                color: #FFFFFF;
-            }
-        """)
+        set_button_icon(load_btn, "file-text", COLORS["text"], 15)
         load_btn.clicked.connect(self.load_lrc_requested)
 
         empty_layout.addStretch()
@@ -179,7 +124,7 @@ class LyricsPanel(QWidget):
         layout.addWidget(self.stack, 1)
 
     def set_accent_color(self, accent_color: str) -> None:
-        """Perbarui warna sorotan baris lirik aktif sesuai sampul lagu."""
+        """Perbarui warna aksen aktif sesuai sampul lagu."""
         self._accent_color = accent_color or COLORS["accent"]
         if 0 <= self._active_index < self.list_widget.count():
             self._apply_item_style(self._active_index, is_active=True)
@@ -196,10 +141,10 @@ class LyricsPanel(QWidget):
 
         self.stack.setCurrentIndex(0)
         for idx, line in enumerate(self._lines):
-            display_text = line.text if line.text else "♪"
+            display_text = line.text if line.text else "· · ·"
             item = QListWidgetItem(display_text)
             item.setData(Qt.ItemDataRole.UserRole, line.time_ms)
-            item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
             self.list_widget.addItem(item)
             self._apply_item_style(idx, is_active=False)
 
@@ -212,13 +157,11 @@ class LyricsPanel(QWidget):
         if new_idx == self._active_index:
             return
 
-        # Kembalikan tampilan baris sebelumnya ke normal
         if 0 <= self._active_index < self.list_widget.count():
             self._apply_item_style(self._active_index, is_active=False)
 
         self._active_index = new_idx
 
-        # Sorot baris aktif baru dan gulir ke tengah layar
         if 0 <= self._active_index < self.list_widget.count():
             self._apply_item_style(self._active_index, is_active=True)
             active_item = self.list_widget.item(self._active_index)
@@ -233,19 +176,16 @@ class LyricsPanel(QWidget):
         if item is None:
             return
 
-        font = QFont("Segoe UI", 12 if is_active else 10)
-        font.setBold(is_active)
-        item.setFont(font)
-
         if is_active:
-            item.setForeground(QColor("#FFFFFF"))
-            item.setBackground(QColor(self._accent_color))
+            item.setFont(make_font(16, QFont.Weight.DemiBold))
+            item.setForeground(QColor(COLORS["text"]))
+            item.setBackground(QColor(COLORS["surface-2"]))
         else:
-            item.setForeground(QColor("#8B93A7"))
+            item.setFont(make_font(14, QFont.Weight.Normal))
+            item.setForeground(QColor(COLORS["text-muted"]))
             item.setBackground(QColor(0, 0, 0, 0))
 
     def _on_item_clicked(self, item: QListWidgetItem) -> None:
         time_ms = item.data(Qt.ItemDataRole.UserRole)
         if time_ms is not None:
             self.seek_requested.emit(int(time_ms))
-

@@ -1,20 +1,13 @@
-"""NexusPlay — PlayerBar widget.
+"""NexusPlay — PlayerBar widget (Minimal Dark).
 
-Bar kontrol pemutar yang selalu ada di bagian bawah jendela.
-Menampilkan:
-- Info media yang sedang diputar (cover/thumbnail, judul, artis)
-- Kontrol pemutaran (sebelumnya, play/pause, berikutnya)
-- Slider pencari posisi (seek slider) + indikator waktu (0:00 / 3:45)
-- Kontrol volume (slider + tombol mute)
-- Tombol fullscreen
-
-Komponen ini hanya berkomunikasi lewat sinyal dan memanggil metode Player,
-tidak menyentuh backend mpv secara langsung (PRD 7.3).
+Bar kontrol pemutar bawah dengan ikon SVG Lucide, satu aksen untuk tombol
+Play dan progres seek, serta tanpa gradien dekoratif.
 """
 
 from pathlib import Path
+
 from PySide6.QtCore import QEvent, QObject, Qt, Signal
-from PySide6.QtGui import QPixmap, QPainter, QColor, QFont
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -26,7 +19,13 @@ from PySide6.QtWidgets import (
 
 from nexusplay.core.player import Player
 from nexusplay.core.queue import PlayQueue
-from nexusplay.ui.theme import COLORS, extract_accent_color
+from nexusplay.ui.theme import (
+    COLORS,
+    extract_accent_color,
+    icon_pixmap,
+    refresh_style,
+    set_button_icon,
+)
 
 
 def format_ms(ms: int) -> str:
@@ -43,9 +42,8 @@ def format_ms(ms: int) -> str:
 
 
 class PlayerBar(QWidget):
-    """Bar pemutar bawah yang modern."""
+    """Bar pemutar bawah bergaya Minimal Dark."""
 
-    # Sinyal keluar ke MainWindow
     fullscreen_requested = Signal()
     queue_toggle_requested = Signal()
     lyrics_toggle_requested = Signal()
@@ -65,26 +63,22 @@ class PlayerBar(QWidget):
         self.player = player
         self.queue = queue
         self._seeking = False
+        self._is_playing = False
+        self._is_favorite = False
         self._accent_color = COLORS["accent"]
 
-        self.setFixedHeight(84)
+        self.setFixedHeight(80)
         self.setObjectName("PlayerBar")
-        self.setStyleSheet("""
-            QWidget#PlayerBar {
-                background-color: #151922;
-                border-top: 1px solid #262C3B;
-            }
-        """)
 
         self._build_ui()
         self._connect_signals()
 
     def _build_ui(self) -> None:
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(16, 10, 16, 10)
+        layout.setContentsMargins(20, 10, 20, 10)
         layout.setSpacing(16)
 
-        # ── 1. Kiri: Info Track (Cover + Judul + Artis) ─────────
+        # ── 1. Kiri: Info Track (Cover + Judul + Artis) + Hati ──
         self.info_widget = QWidget()
         self.info_widget.setCursor(Qt.CursorShape.PointingHandCursor)
         self.info_widget.setToolTip("Klik untuk membuka layar Sedang Diputar")
@@ -93,30 +87,24 @@ class PlayerBar(QWidget):
         info_layout.setContentsMargins(0, 0, 0, 0)
         info_layout.setSpacing(12)
 
-        # Cover thumbnail (48x48)
         self.cover_label = QLabel()
-        self.cover_label.setFixedSize(52, 52)
-        self.cover_label.setStyleSheet("""
-            background-color: #1D2230;
-            border-radius: 8px;
-            border: 1px solid #262C3B;
-        """)
+        self.cover_label.setObjectName("CoverThumb")
+        self.cover_label.setFixedSize(48, 48)
         self.cover_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._set_default_cover()
 
-        # Teks Judul & Artis
         text_layout = QVBoxLayout()
         text_layout.setContentsMargins(0, 0, 0, 0)
         text_layout.setSpacing(2)
         text_layout.setAlignment(Qt.AlignmentFlag.AlignVCenter)
 
         self.title_label = QLabel("Belum ada media")
-        self.title_label.setStyleSheet("color: #E8EAF0; font-size: 14px; font-weight: 600;")
-        self.title_label.setMaximumWidth(260)
+        self.title_label.setProperty("role", "body-strong")
+        self.title_label.setMaximumWidth(240)
 
-        self.artist_label = QLabel("Pilih lagu atau video untuk memutar")
-        self.artist_label.setStyleSheet("color: #8B93A7; font-size: 12px;")
-        self.artist_label.setMaximumWidth(260)
+        self.artist_label = QLabel("Pilih lagu atau video")
+        self.artist_label.setProperty("role", "muted")
+        self.artist_label.setMaximumWidth(240)
 
         text_layout.addWidget(self.title_label)
         text_layout.addWidget(self.artist_label)
@@ -125,65 +113,34 @@ class PlayerBar(QWidget):
         info_layout.addLayout(text_layout)
         layout.addWidget(self.info_widget, 0)
 
-        self.favorite_button = QPushButton("♡")
-        self.favorite_button.setFixedSize(32, 32)
-        self.favorite_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.favorite_button.setToolTip("Tandai Favorit")
+        self.favorite_button = self._make_icon_btn("heart", "Tandai Favorit")
         self.set_favorite_state(False)
         layout.addWidget(self.favorite_button, 0)
 
-        # ── 2. Tengah: Kontrol & Seek Bar ────────────────────────
+        # ── 2. Tengah: Kontrol Transport & Seek Bar ─────────────
         center_widget = QWidget()
         center_layout = QVBoxLayout(center_widget)
         center_layout.setContentsMargins(0, 0, 0, 0)
         center_layout.setSpacing(4)
         center_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # Baris tombol kontrol
         buttons_row = QHBoxLayout()
         buttons_row.setContentsMargins(0, 0, 0, 0)
-        buttons_row.setSpacing(10)
+        buttons_row.setSpacing(8)
         buttons_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self.shuffle_button = QPushButton("🔀")
-        self.shuffle_button.setFixedSize(32, 32)
-        self.shuffle_button.setToolTip("Acak (S)")
-        self.shuffle_button.setStyleSheet(self._button_style(round_shape=True))
+        self.shuffle_button = self._make_icon_btn("shuffle", "Acak (S)")
+        self.prev_button = self._make_icon_btn("skip-back", "Sebelumnya (P)")
 
-        self.prev_button = QPushButton("⏮")
-        self.prev_button.setFixedSize(36, 36)
-        self.prev_button.setToolTip("Sebelumnya (P)")
-        self.prev_button.setStyleSheet(self._button_style(round_shape=True))
-
-        self.play_button = QPushButton("▶")
-        self.play_button.setFixedSize(42, 42)
+        self.play_button = QPushButton()
+        self.play_button.setProperty("variant", "play")
+        self.play_button.setFixedSize(40, 40)
+        self.play_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.play_button.setToolTip("Putar / Jeda (Spasi)")
-        self.play_button.setStyleSheet("""
-            QPushButton {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #7C5CFF, stop:1 #22D3EE);
-                color: #FFFFFF;
-                border: none;
-                border-radius: 21px;
-                font-size: 16px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #9074FF, stop:1 #3EE0F8);
-            }
-            QPushButton:pressed {
-                background: #6040E0;
-            }
-        """)
+        set_button_icon(self.play_button, "play", COLORS["on-accent"], 18, filled=True)
 
-        self.next_button = QPushButton("⏭")
-        self.next_button.setFixedSize(36, 36)
-        self.next_button.setToolTip("Berikutnya (N)")
-        self.next_button.setStyleSheet(self._button_style(round_shape=True))
-
-        self.repeat_button = QPushButton("🔁")
-        self.repeat_button.setFixedSize(32, 32)
-        self.repeat_button.setToolTip("Ulang: Mati (R)")
-        self.repeat_button.setStyleSheet(self._button_style(round_shape=True))
+        self.next_button = self._make_icon_btn("skip-forward", "Berikutnya (N)")
+        self.repeat_button = self._make_icon_btn("repeat", "Ulang: Mati (R)")
 
         buttons_row.addWidget(self.shuffle_button)
         buttons_row.addWidget(self.prev_button)
@@ -191,22 +148,24 @@ class PlayerBar(QWidget):
         buttons_row.addWidget(self.next_button)
         buttons_row.addWidget(self.repeat_button)
 
-        # Baris slider posisi + waktu
         seek_row = QHBoxLayout()
         seek_row.setContentsMargins(0, 0, 0, 0)
-        seek_row.setSpacing(8)
+        seek_row.setSpacing(10)
 
         self.time_current = QLabel("0:00")
-        self.time_current.setStyleSheet("color: #8B93A7; font-size: 11px; min-width: 36px;")
+        self.time_current.setProperty("role", "time")
+        self.time_current.setMinimumWidth(38)
         self.time_current.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
         self.seek_slider = QSlider(Qt.Orientation.Horizontal)
+        self.seek_slider.setObjectName("SeekSlider")
         self.seek_slider.setRange(0, 0)
-        self.seek_slider.setFixedHeight(18)
-        self.seek_slider.setStyleSheet(self._slider_style("#7C5CFF"))
+        self.seek_slider.setFixedHeight(16)
+        self.seek_slider.setCursor(Qt.CursorShape.PointingHandCursor)
 
         self.time_total = QLabel("0:00")
-        self.time_total.setStyleSheet("color: #8B93A7; font-size: 11px; min-width: 36px;")
+        self.time_total.setProperty("role", "time")
+        self.time_total.setMinimumWidth(38)
 
         seek_row.addWidget(self.time_current)
         seek_row.addWidget(self.seek_slider, 1)
@@ -216,44 +175,27 @@ class PlayerBar(QWidget):
         center_layout.addLayout(seek_row)
         layout.addWidget(center_widget, 1)
 
-        # ── 3. Kanan: Volume & Fullscreen ────────────────────────
+        # ── 3. Kanan: Volume, Lirik, Antrean, Mini, Fullscreen ──
         right_widget = QWidget()
         right_layout = QHBoxLayout(right_widget)
         right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.setSpacing(10)
+        right_layout.setSpacing(6)
         right_layout.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
-        self.mute_button = QPushButton("🔊")
-        self.mute_button.setFixedSize(34, 34)
-        self.mute_button.setToolTip("Bisu (M)")
-        self.mute_button.setStyleSheet(self._button_style(round_shape=True))
+        self.mute_button = self._make_icon_btn("volume-2", "Bisu (M)")
 
         self.volume_slider = QSlider(Qt.Orientation.Horizontal)
+        self.volume_slider.setObjectName("VolumeSlider")
         self.volume_slider.setRange(0, 100)
         self.volume_slider.setValue(self.player.volume)
-        self.volume_slider.setFixedWidth(90)
-        self.volume_slider.setFixedHeight(18)
-        self.volume_slider.setStyleSheet(self._slider_style("#22D3EE"))
+        self.volume_slider.setFixedWidth(84)
+        self.volume_slider.setFixedHeight(16)
+        self.volume_slider.setCursor(Qt.CursorShape.PointingHandCursor)
 
-        self.lyrics_button = QPushButton("🎤")
-        self.lyrics_button.setFixedSize(34, 34)
-        self.lyrics_button.setToolTip("Lirik Tersinkron (Ctrl+L)")
-        self.lyrics_button.setStyleSheet(self._button_style(round_shape=True))
-
-        self.queue_button = QPushButton("☰")
-        self.queue_button.setFixedSize(34, 34)
-        self.queue_button.setToolTip("Antrean (Ctrl+Q)")
-        self.queue_button.setStyleSheet(self._button_style(round_shape=True))
-
-        self.mini_player_button = QPushButton("⧉")
-        self.mini_player_button.setFixedSize(34, 34)
-        self.mini_player_button.setToolTip("Mini-Player Selalu di Atas (FR-61)")
-        self.mini_player_button.setStyleSheet(self._button_style(round_shape=True))
-
-        self.fullscreen_button = QPushButton("⛶")
-        self.fullscreen_button.setFixedSize(34, 34)
-        self.fullscreen_button.setToolTip("Layar Penuh (F)")
-        self.fullscreen_button.setStyleSheet(self._button_style(round_shape=True))
+        self.lyrics_button = self._make_icon_btn("mic-vocal", "Lirik Tersinkron (Ctrl+L)")
+        self.queue_button = self._make_icon_btn("list-music", "Antrean (Ctrl+Q)")
+        self.mini_player_button = self._make_icon_btn("picture-in-picture-2", "Mini-Player (FR-61)")
+        self.fullscreen_button = self._make_icon_btn("maximize-2", "Layar Penuh (F)")
 
         right_layout.addWidget(self.mute_button)
         right_layout.addWidget(self.volume_slider)
@@ -263,81 +205,45 @@ class PlayerBar(QWidget):
         right_layout.addWidget(self.fullscreen_button)
         layout.addWidget(right_widget, 0)
 
-    def _button_style(self, round_shape: bool = False) -> str:
-        radius = "17px" if round_shape else "8px"
-        return f"""
+    def _make_icon_btn(self, icon_name: str, tooltip: str) -> QPushButton:
+        btn = QPushButton()
+        btn.setProperty("variant", "icon")
+        btn.setFixedSize(32, 32)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.setToolTip(tooltip)
+        set_button_icon(btn, icon_name, COLORS["text-muted"], 17)
+        return btn
+
+    def _set_default_cover(self) -> None:
+        self.cover_label.setText("")
+        self.cover_label.setPixmap(icon_pixmap("music", COLORS["text-muted"], 20))
+
+    def set_accent_color(self, accent_color: str) -> None:
+        """Perbarui warna aksen tunggal pada tombol Play dan progres seek."""
+        self._accent_color = accent_color or COLORS["accent"]
+        self.play_button.setStyleSheet(f"""
             QPushButton {{
-                background-color: #1D2230;
-                color: #E8EAF0;
-                border: 1px solid #262C3B;
-                border-radius: {radius};
-                font-size: 13px;
+                background-color: {self._accent_color};
+                border: none;
+                border-radius: 20px;
                 padding: 0px;
             }}
             QPushButton:hover {{
-                background-color: #7C5CFF;
-                border-color: #7C5CFF;
-                color: #FFFFFF;
+                background-color: {COLORS["text"]};
             }}
-            QPushButton:pressed {{
-                background-color: #151922;
-            }}
-        """
-
-    def _slider_style(self, accent_color: str) -> str:
-        return f"""
-            QSlider::groove:horizontal {{
-                height: 4px;
-                background: #262C3B;
-                border-radius: 2px;
-            }}
+        """)
+        self.seek_slider.setStyleSheet(f"""
             QSlider::sub-page:horizontal {{
-                background: {accent_color};
+                background: {self._accent_color};
                 border-radius: 2px;
-            }}
-            QSlider::handle:horizontal {{
-                background: #FFFFFF;
-                width: 12px;
-                height: 12px;
-                margin: -4px 0;
-                border-radius: 6px;
             }}
             QSlider::handle:horizontal:hover {{
-                background: {accent_color};
-            }}
-        """
-
-    def _set_default_cover(self) -> None:
-        self.cover_label.setPixmap(QPixmap())
-        self.cover_label.setText("🎵")
-        self.cover_label.setStyleSheet("""
-            background-color: #1D2230;
-            border-radius: 8px;
-            border: 1px solid #262C3B;
-            font-size: 20px;
-        """)
-
-    def set_accent_color(self, accent_color: str) -> None:
-        """Perbarui warna aksen tombol putar dan seek slider (FR-60)."""
-        self._accent_color = accent_color or COLORS["accent"]
-        self.seek_slider.setStyleSheet(self._slider_style(self._accent_color))
-        self.play_button.setStyleSheet(f"""
-            QPushButton {{
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {self._accent_color}, stop:1 #22D3EE);
-                color: #FFFFFF;
-                border: none;
-                border-radius: 21px;
-                font-size: 16px;
-                font-weight: bold;
-            }}
-            QPushButton:hover {{
-                background: #22D3EE;
-                color: #0B0D12;
-            }}
-            QPushButton:pressed {{
                 background: {self._accent_color};
             }}
         """)
+        if self.queue:
+            self._on_shuffle_changed(self.queue.shuffle)
+            self._on_repeat_changed(self.queue.repeat_mode)
 
     def set_media_info(
         self,
@@ -346,7 +252,7 @@ class PlayerBar(QWidget):
         cover_path: str | None = None,
         accent_color: str | None = None,
     ) -> None:
-        """Perbarui informasi track yang tampil di bar serta warna aksen sampul."""
+        """Perbarui info lagu yang tampil di bar serta warna aksen sampul."""
         self.title_label.setText(title or "Tanpa Judul")
         self.artist_label.setText(artist or "Artis tidak diketahui")
 
@@ -357,40 +263,25 @@ class PlayerBar(QWidget):
             pixmap = QPixmap(cover_path)
             if not pixmap.isNull():
                 scaled = pixmap.scaled(
-                    52, 52,
+                    48, 48,
                     Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-                    Qt.TransformationMode.SmoothTransformation
+                    Qt.TransformationMode.SmoothTransformation,
                 )
-                self.cover_label.setText("")
                 self.cover_label.setPixmap(scaled)
                 return
         self._set_default_cover()
 
     def set_favorite_state(self, is_favorite: bool) -> None:
-        """Perbarui tampilan tombol hati favorit (FR-27)."""
+        """Perbarui ikon hati favorit (kosong = text-muted, terisi = text)."""
+        self._is_favorite = is_favorite
         if is_favorite:
-            self.favorite_button.setText("♥")
             self.favorite_button.setToolTip("Hapus dari Favorit")
-            self.favorite_button.setStyleSheet("""
-                QPushButton {
-                    background-color: rgba(255, 92, 122, 0.16);
-                    color: #FF5C7A;
-                    border: 1px solid #FF5C7A;
-                    border-radius: 16px;
-                    font-size: 14px;
-                }
-                QPushButton:hover {
-                    background-color: #FF5C7A;
-                    color: #FFFFFF;
-                }
-            """)
+            set_button_icon(self.favorite_button, "heart", COLORS["text"], 17, filled=True)
         else:
-            self.favorite_button.setText("♡")
             self.favorite_button.setToolTip("Tandai Favorit")
-            self.favorite_button.setStyleSheet(self._button_style(round_shape=True))
+            set_button_icon(self.favorite_button, "heart", COLORS["text-muted"], 17, filled=False)
 
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
-        """Tangkap klik pada area info kiri untuk membuka layar Sedang Diputar."""
         if watched is self.info_widget and event.type() == QEvent.Type.MouseButtonRelease:
             self.now_playing_requested.emit()
             return True
@@ -399,7 +290,6 @@ class PlayerBar(QWidget):
     # ── Koneksi Sinyal ─────────────────────────────────────────
 
     def _connect_signals(self) -> None:
-        # Tombol
         self.play_button.clicked.connect(self.player.toggle_pause)
         self.mute_button.clicked.connect(self.player.toggle_mute)
         self.fullscreen_button.clicked.connect(self.fullscreen_requested)
@@ -408,13 +298,11 @@ class PlayerBar(QWidget):
         self.mini_player_button.clicked.connect(self.mini_player_requested)
         self.favorite_button.clicked.connect(self.favorite_toggled)
 
-        # Slider pengguna
         self.volume_slider.valueChanged.connect(self.player.set_volume)
         self.seek_slider.sliderPressed.connect(self._on_seek_pressed)
         self.seek_slider.sliderMoved.connect(self._on_seek_moved)
         self.seek_slider.sliderReleased.connect(self._on_seek_released)
 
-        # Player -> Bar
         self.player.state_changed.connect(self._on_state_changed)
         self.player.position_changed.connect(self._on_position_changed)
         self.player.duration_changed.connect(self._on_duration_changed)
@@ -429,7 +317,6 @@ class PlayerBar(QWidget):
             self.next_button.clicked.connect(self.next_requested)
 
     def set_queue(self, queue: PlayQueue) -> None:
-        """Hubungkan PlayQueue ke tombol kontrol antrean, shuffle, dan repeat."""
         self.queue = queue
         self.prev_button.clicked.connect(self.queue.prev)
         self.next_button.clicked.connect(self.queue.next)
@@ -445,53 +332,31 @@ class PlayerBar(QWidget):
     # ── Handler Sinyal ─────────────────────────────────────────
 
     def _on_shuffle_changed(self, enabled: bool) -> None:
-        if enabled:
-            self.shuffle_button.setStyleSheet("""
-                QPushButton {
-                    background-color: #7C5CFF;
-                    color: #FFFFFF;
-                    border: 1px solid #7C5CFF;
-                    border-radius: 16px;
-                    font-size: 13px;
-                }
-            """)
-            self.shuffle_button.setToolTip("Acak: Aktif (S)")
-        else:
-            self.shuffle_button.setStyleSheet(self._button_style(round_shape=True))
-            self.shuffle_button.setToolTip("Acak: Mati (S)")
+        self.shuffle_button.setProperty("active", "true" if enabled else "false")
+        color = self._accent_color if enabled else COLORS["text-muted"]
+        set_button_icon(self.shuffle_button, "shuffle", color, 17)
+        self.shuffle_button.setToolTip("Acak: Aktif (S)" if enabled else "Acak: Mati (S)")
+        refresh_style(self.shuffle_button)
 
     def _on_repeat_changed(self, mode: str) -> None:
         if mode == "all":
-            self.repeat_button.setText("🔁")
-            self.repeat_button.setStyleSheet("""
-                QPushButton {
-                    background-color: #7C5CFF;
-                    color: #FFFFFF;
-                    border: 1px solid #7C5CFF;
-                    border-radius: 16px;
-                    font-size: 13px;
-                }
-            """)
+            self.repeat_button.setProperty("active", "true")
+            set_button_icon(self.repeat_button, "repeat", self._accent_color, 17)
             self.repeat_button.setToolTip("Ulang: Semua Lagu (R)")
         elif mode == "one":
-            self.repeat_button.setText("🔂")
-            self.repeat_button.setStyleSheet("""
-                QPushButton {
-                    background-color: #7C5CFF;
-                    color: #FFFFFF;
-                    border: 1px solid #7C5CFF;
-                    border-radius: 16px;
-                    font-size: 13px;
-                }
-            """)
+            self.repeat_button.setProperty("active", "true")
+            set_button_icon(self.repeat_button, "repeat-1", self._accent_color, 17)
             self.repeat_button.setToolTip("Ulang: Satu Lagu Ini (R)")
         else:
-            self.repeat_button.setText("🔁")
-            self.repeat_button.setStyleSheet(self._button_style(round_shape=True))
+            self.repeat_button.setProperty("active", "false")
+            set_button_icon(self.repeat_button, "repeat", COLORS["text-muted"], 17)
             self.repeat_button.setToolTip("Ulang: Mati (R)")
+        refresh_style(self.repeat_button)
 
     def _on_state_changed(self, state: str) -> None:
-        self.play_button.setText("⏸" if state == "playing" else "▶")
+        self._is_playing = state == "playing"
+        icon_name = "pause" if self._is_playing else "play"
+        set_button_icon(self.play_button, icon_name, COLORS["on-accent"], 18, filled=True)
 
     def _on_media_loaded(self, path: str) -> None:
         if not self.title_label.text() or self.title_label.text() == "Belum ada media":
@@ -523,4 +388,5 @@ class PlayerBar(QWidget):
         self.volume_slider.blockSignals(False)
 
     def _on_mute_changed(self, is_muted: bool) -> None:
-        self.mute_button.setText("🔇" if is_muted else "🔊")
+        icon_name = "volume-x" if is_muted else "volume-2"
+        set_button_icon(self.mute_button, icon_name, COLORS["text-muted"], 17)

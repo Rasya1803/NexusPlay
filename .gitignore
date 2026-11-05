@@ -14,9 +14,11 @@ data/
 # libmpv (file biner besar, unduh sendiri, lihat README)
 libmpv-2.dll
 
-# IDE
+# IDE & Agent Skills
 .vscode/
 .idea/
+.agent/
+.agents/
 
 # OS
 Thumbs.db

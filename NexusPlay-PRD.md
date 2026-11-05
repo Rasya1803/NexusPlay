@@ -249,22 +249,27 @@ nexusplay/
 - **Bar pemutar bawah:** selalu terlihat; klik cover membuka layar "Sedang Diputar".
 - **Mode video:** video mengisi area tengah; kontrol melayang dan hilang setelah 3 detik tanpa gerakan; `F` untuk fullscreen.
 
-### 8.2 Token desain (tema gelap)
+### 8.2 Token desain (Minimal Dark — Minimalism & Swiss Style)
 
-| Token        | Nilai                                                                                  |
-| ------------ | -------------------------------------------------------------------------------------- |
-| `bg`         | `#0B0D12`                                                                              |
-| `surface`    | `#151922`                                                                              |
-| `surface-2`  | `#1D2230`                                                                              |
-| `border`     | `#262C3B`                                                                              |
-| `text`       | `#E8EAF0`                                                                              |
-| `text-muted` | `#8B93A7`                                                                              |
-| `accent`     | gradien `#7C5CFF` → `#22D3EE` (default); diganti warna dominan cover saat lagu diputar |
-| `danger`     | `#FF5C7A`                                                                              |
-| Radius       | 12 px (kartu), 999 px (tombol bulat/chip)                                              |
-| Spasi        | skala 4 / 8 / 12 / 16 / 24 / 32 px                                                     |
-| Font         | Inter (disertakan), cadangan Segoe UI                                                  |
-| Animasi      | 150–250 ms ease-out untuk hover, buka panel, ganti view                                |
+| Token           | Nilai                                                                                 |
+| --------------- | ------------------------------------------------------------------------------------- |
+| `bg`            | `#0A0A0B`                                                                             |
+| `surface`       | `#111113`                                                                             |
+| `surface-2`     | `#18181B`                                                                             |
+| `surface-3`     | `#222226`                                                                             |
+| `border`        | `#232327`                                                                             |
+| `border-strong` | `#3F3F46`                                                                             |
+| `text`          | `#F4F4F5` (kontras 18.0 : 1 terhadap `bg`)                                            |
+| `text-muted`    | `#A1A1AA` (kontras 7.72 : 1 terhadap `bg`)                                            |
+| `text-disabled` | `#71717A`                                                                             |
+| `accent`        | `#22C55E` (default, tanpa gradien); diganti warna dominan cover saat lagu diputar     |
+| `on-accent`     | `#0A0A0B`                                                                             |
+| `danger`        | `#F87171`                                                                             |
+| Radius          | 6 px (kontrol/input), 8 px (kartu/sampul), 999 px (tombol Play bulat)                 |
+| Spasi           | skala 4 / 8 / 12 / 16 / 24 / 32 px                                                    |
+| Font            | Inter (disertakan di `nexusplay/resources/fonts/`), cadangan Segoe UI                 |
+| Ikon            | Lucide SVG (`nexusplay/resources/icons/`, stroke 1.75 px, tanpa emoji)                |
+| Animasi         | 150–200 ms ease-out seperlunya                                                        |
 
 ### 8.3 Prinsip interaksi
 

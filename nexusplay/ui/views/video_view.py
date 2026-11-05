@@ -1,17 +1,16 @@
-"""NexusPlay — VideoView.
+"""NexusPlay — VideoView (Minimal Dark).
 
-Tampilan daftar seluruh file video di library dalam bentuk tabel modern.
+Tampilan daftar seluruh file video di library dalam bentuk tabel minimalis.
 Kolom:
 1. # (Nomor)
-2. Judul Video
-3. Resolusi (lebar x tinggi)
-4. Ukuran File (MB/GB)
-5. Durasi
-
-Klik dua kali (double click) memancarkan sinyal `media_activated(media_dict)`.
+2. JUDUL VIDEO
+3. RESOLUSI
+4. UKURAN
+5. DURASI
 """
 
 from pathlib import Path
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
@@ -27,6 +26,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from nexusplay.ui.theme import COLORS, icon_pixmap, set_button_icon
 from nexusplay.ui.widgets.player_bar import format_ms
 
 
@@ -65,9 +65,9 @@ class VideoView(QWidget):
         title_col = QVBoxLayout()
         title_col.setSpacing(2)
         self.title_label = QLabel("Video")
-        self.title_label.setStyleSheet("color: #E8EAF0; font-size: 24px; font-weight: bold;")
+        self.title_label.setProperty("role", "title")
         self.subtitle_label = QLabel("0 video")
-        self.subtitle_label.setStyleSheet("color: #8B93A7; font-size: 13px;")
+        self.subtitle_label.setProperty("role", "muted")
         title_col.addWidget(self.title_label)
         title_col.addWidget(self.subtitle_label)
 
@@ -82,13 +82,13 @@ class VideoView(QWidget):
         # 1. Halaman Tabel Video
         self.table = QTableWidget()
         self.table.setColumnCount(5)
-        self.table.setHorizontalHeaderLabels(["#", "Judul Video", "Resolusi", "Ukuran", "Durasi"])
+        self.table.setHorizontalHeaderLabels(["#", "JUDUL VIDEO", "RESOLUSI", "UKURAN", "DURASI"])
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setShowGrid(False)
         self.table.verticalHeader().setVisible(False)
-        self.table.setAlternatingRowColors(True)
+        self.table.setAlternatingRowColors(False)
 
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
@@ -101,34 +101,6 @@ class VideoView(QWidget):
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
         self.table.setColumnWidth(4, 150)
 
-        self.table.setStyleSheet("""
-            QTableWidget {
-                background-color: #0B0D12;
-                alternate-background-color: #11141B;
-                color: #E8EAF0;
-                border: none;
-                outline: none;
-            }
-            QTableWidget::item {
-                padding: 10px 8px;
-                border-bottom: 1px solid #1A1F2C;
-            }
-            QTableWidget::item:selected {
-                background-color: #1D2230;
-                color: #FFFFFF;
-                border-left: 2px solid #22D3EE;
-            }
-            QHeaderView::section {
-                background-color: #0B0D12;
-                color: #8B93A7;
-                font-size: 12px;
-                font-weight: 600;
-                padding: 8px;
-                border: none;
-                border-bottom: 1px solid #262C3B;
-            }
-        """)
-
         self.table.cellDoubleClicked.connect(self._on_cell_double_clicked)
         self.stack.addWidget(self.table)
 
@@ -138,33 +110,22 @@ class VideoView(QWidget):
         empty_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         empty_layout.setSpacing(12)
 
-        icon_label = QLabel("🎬")
-        icon_label.setStyleSheet("font-size: 48px; background: transparent;")
+        icon_label = QLabel()
+        icon_label.setPixmap(icon_pixmap("film", COLORS["text-muted"], 40))
         icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         empty_title = QLabel("Belum ada video di library")
-        empty_title.setStyleSheet("color: #E8EAF0; font-size: 18px; font-weight: bold;")
+        empty_title.setProperty("role", "heading")
         empty_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         empty_desc = QLabel("Tambahkan folder film, series, atau video Anda untuk mulai menonton.")
-        empty_desc.setStyleSheet("color: #8B93A7; font-size: 13px; margin-bottom: 8px;")
+        empty_desc.setProperty("role", "muted")
         empty_desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        add_btn = QPushButton("＋ Tambah Folder Video")
-        add_btn.setStyleSheet("""
-            QPushButton {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #7C5CFF, stop:1 #22D3EE);
-                color: #FFFFFF;
-                border: none;
-                border-radius: 8px;
-                padding: 10px 20px;
-                font-size: 14px;
-                font-weight: 600;
-            }
-            QPushButton:hover {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #9074FF, stop:1 #3EE0F8);
-            }
-        """)
+        add_btn = QPushButton("Tambah Folder Video")
+        add_btn.setProperty("variant", "primary")
+        add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        set_button_icon(add_btn, "folder-plus", COLORS["on-accent"], 16)
         add_btn.clicked.connect(self.add_folder_requested)
 
         empty_layout.addStretch()
@@ -184,11 +145,15 @@ class VideoView(QWidget):
         self.subtitle_label.setText(f"{count} video")
 
         if count == 0:
-            self.stack.setCurrentIndex(1)  # Empty state
+            self.stack.setCurrentIndex(1)
             return
 
-        self.stack.setCurrentIndex(0)      # Tabel
+        self.stack.setCurrentIndex(0)
         self.table.setRowCount(count)
+
+        muted_color = QColor(COLORS["text-muted"])
+        text_color = QColor(COLORS["text"])
+        accent_color = QColor(COLORS["accent"])
 
         for row, v in enumerate(videos):
             num = str(row + 1)
@@ -202,27 +167,28 @@ class VideoView(QWidget):
 
             item_num = QTableWidgetItem(num)
             item_num.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            item_num.setForeground(Qt.GlobalColor.darkGray)
+            item_num.setForeground(muted_color)
 
             item_title = QTableWidgetItem(title)
+            item_title.setForeground(text_color)
             item_title.setToolTip(v.get("path", ""))
 
             item_res = QTableWidgetItem(res_str)
             item_res.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            item_res.setForeground(Qt.GlobalColor.lightGray)
+            item_res.setForeground(muted_color)
 
             item_size = QTableWidgetItem(size_str)
             item_size.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            item_size.setForeground(Qt.GlobalColor.darkGray)
+            item_size.setForeground(muted_color)
 
             if resume_ms > 0:
-                dur_text = f"▶ {format_ms(resume_ms)} / {duration}"
+                dur_text = f"{format_ms(resume_ms)} / {duration}"
                 item_dur = QTableWidgetItem(dur_text)
-                item_dur.setForeground(QColor("#22D3EE"))
+                item_dur.setForeground(accent_color)
                 item_dur.setToolTip(f"Lanjutkan dari {format_ms(resume_ms)}")
             else:
                 item_dur = QTableWidgetItem(duration)
-                item_dur.setForeground(Qt.GlobalColor.darkGray)
+                item_dur.setForeground(muted_color)
             item_dur.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
             self.table.setItem(row, 0, item_num)
@@ -230,7 +196,7 @@ class VideoView(QWidget):
             self.table.setItem(row, 2, item_res)
             self.table.setItem(row, 3, item_size)
             self.table.setItem(row, 4, item_dur)
-            self.table.setRowHeight(row, 38)
+            self.table.setRowHeight(row, 40)
 
     def _on_cell_double_clicked(self, row: int, _col: int) -> None:
         if 0 <= row < len(self._videos):

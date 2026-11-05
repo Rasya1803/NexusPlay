@@ -1,6 +1,6 @@
-"""NexusPlay — FavoritesView (FR-25, FR-27).
+"""NexusPlay — FavoritesView (FR-25, FR-27, Minimal Dark).
 
-Tampilan daftar media (lagu & video) yang ditandai sebagai Favorit (♥).
+Tampilan daftar media (lagu & video) yang ditandai sebagai Favorit.
 Mewarisi tabel dan menu klik kanan dari `MusicView` dengan status kosong
 khusus halaman Favorit.
 """
@@ -8,6 +8,7 @@ khusus halaman Favorit.
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
+from nexusplay.ui.theme import COLORS, icon_pixmap
 from nexusplay.ui.views.music_view import MusicView
 
 
@@ -26,19 +27,19 @@ class FavoritesView(MusicView):
         empty_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         empty_layout.setSpacing(10)
 
-        icon_label = QLabel("♥")
-        icon_label.setStyleSheet("color: #FF5C7A; font-size: 48px; background: transparent;")
+        icon_label = QLabel()
+        icon_label.setPixmap(icon_pixmap("heart", COLORS["text-muted"], 40))
         icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         empty_title = QLabel("Belum ada media favorit")
-        empty_title.setStyleSheet("color: #E8EAF0; font-size: 18px; font-weight: bold;")
+        empty_title.setProperty("role", "heading")
         empty_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         empty_desc = QLabel(
-            "Klik ikon hati (♡) pada daftar lagu atau bar pemutar bawah\n"
+            "Klik ikon hati pada daftar lagu atau bar pemutar bawah\n"
             "untuk menyimpan lagu dan video kesukaan Anda di sini."
         )
-        empty_desc.setStyleSheet("color: #8B93A7; font-size: 13px;")
+        empty_desc.setProperty("role", "muted")
         empty_desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         empty_layout.addStretch()
@@ -55,4 +56,3 @@ class FavoritesView(MusicView):
     def set_tracks(self, tracks: list[dict]) -> None:
         super().set_tracks(tracks)
         self.subtitle_label.setText(f"{len(tracks)} item favorit")
-

@@ -1,17 +1,10 @@
-"""NexusPlay — Sidebar widget.
+"""NexusPlay — Sidebar widget (Minimal Dark).
 
-Panel navigasi utama di sisi kiri jendela.
-Menyediakan tombol navigasi untuk:
-- ♪ Musik (semua lagu)
-- 💿 Album
-- 👤 Artis
-- 🎬 Video
-- 📁 Kelola Folder
-
-Memancarkan sinyal `page_changed(page_id: str)` saat item diklik.
+Panel navigasi utama di sisi kiri jendela menggunakan ikon SVG Lucide
+dan indikator garis aksen 2 px di kiri tanpa gradien dekoratif.
 """
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtWidgets import (
     QButtonGroup,
     QFrame,
@@ -22,38 +15,33 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from nexusplay.ui.theme import COLORS, icon, make_font
+
 
 class NavButton(QPushButton):
-    """Tombol item navigasi sidebar dengan status aktif/terpilih."""
+    """Tombol item navigasi sidebar dengan ikon SVG Lucide."""
 
-    def __init__(self, icon_str: str, text: str, page_id: str, parent: QWidget | None = None) -> None:
-        super().__init__(f"  {icon_str}   {text}", parent)
+    def __init__(
+        self,
+        icon_name: str,
+        text: str,
+        page_id: str,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(f"  {text}", parent)
+        self.icon_name = icon_name
         self.page_id = page_id
+        self.setObjectName("NavButton")
         self.setCheckable(True)
-        self.setFixedHeight(42)
+        self.setFixedHeight(36)
+        self.setIconSize(QSize(18, 18))
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setStyleSheet("""
-            QPushButton {
-                background-color: transparent;
-                color: #8B93A7;
-                border: none;
-                border-radius: 8px;
-                text-align: left;
-                padding-left: 14px;
-                font-size: 14px;
-                font-weight: 500;
-            }
-            QPushButton:hover {
-                background-color: #1D2230;
-                color: #E8EAF0;
-            }
-            QPushButton:checked {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(124, 92, 255, 0.25), stop:1 transparent);
-                color: #FFFFFF;
-                font-weight: 600;
-                border-left: 3px solid #7C5CFF;
-            }
-        """)
+        self._update_icon(False)
+        self.toggled.connect(self._update_icon)
+
+    def _update_icon(self, checked: bool) -> None:
+        color = COLORS["text"] if checked else COLORS["text-muted"]
+        self.setIcon(icon(self.icon_name, color=color, size=18))
 
 
 class Sidebar(QWidget):
@@ -63,63 +51,44 @@ class Sidebar(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setFixedWidth(210)
+        self.setFixedWidth(220)
         self.setObjectName("Sidebar")
-        self.setStyleSheet("""
-            QWidget#Sidebar {
-                background-color: #151922;
-                border-right: 1px solid #262C3B;
-            }
-        """)
-
         self._build_ui()
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(14, 20, 14, 16)
-        layout.setSpacing(6)
+        layout.setContentsMargins(16, 20, 16, 16)
+        layout.setSpacing(4)
 
-        # ── Logo & Nama Aplikasi ───────────────────────────────
+        # ── Wordmark Aplikasi (Minimal Swiss — Tanpa Badge Gradien) ──
         logo_layout = QHBoxLayout()
-        logo_layout.setContentsMargins(6, 0, 0, 16)
+        logo_layout.setContentsMargins(8, 0, 8, 16)
         logo_layout.setSpacing(8)
 
-        logo_badge = QLabel("▶")
-        logo_badge.setFixedSize(28, 28)
-        logo_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        logo_badge.setStyleSheet("""
-            background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #7C5CFF, stop:1 #22D3EE);
-            color: #FFFFFF;
-            border-radius: 6px;
-            font-size: 13px;
-            font-weight: bold;
-        """)
-
         title_label = QLabel("NexusPlay")
-        title_label.setStyleSheet("color: #FFFFFF; font-size: 17px; font-weight: bold; letter-spacing: 0.5px;")
-
-        logo_layout.addWidget(logo_badge)
+        title_label.setFont(make_font(15, title_label.font().Weight.DemiBold, -0.3))
         logo_layout.addWidget(title_label)
         logo_layout.addStretch()
         layout.addLayout(logo_layout)
 
-        # ── Label Grup Navigasi ────────────────────────────────
+        # ── Label Seksi ────────────────────────────────────────
         section_label = QLabel("LIBRARY")
-        section_label.setStyleSheet("color: #555E70; font-size: 11px; font-weight: 700; padding: 4px 8px;")
+        section_label.setProperty("role", "caption")
+        section_label.setContentsMargins(8, 4, 8, 4)
         layout.addWidget(section_label)
 
         # ── Grup Tombol Navigasi ───────────────────────────────
         self.button_group = QButtonGroup(self)
         self.button_group.setExclusive(True)
 
-        self.nav_music = NavButton("♪", "Musik", "music")
-        self.nav_albums = NavButton("💿", "Album", "albums")
-        self.nav_artists = NavButton("👤", "Artis", "artists")
-        self.nav_videos = NavButton("🎬", "Video", "videos")
-        self.nav_favorites = NavButton("♥", "Favorit", "favorites")
-        self.nav_playlists = NavButton("≡", "Playlist", "playlists")
-        self.nav_stats = NavButton("▤", "Statistik", "stats")
-        self.nav_folders = NavButton("📁", "Folder Library", "folders")
+        self.nav_music = NavButton("music", "Musik", "music")
+        self.nav_albums = NavButton("disc-3", "Album", "albums")
+        self.nav_artists = NavButton("user-round", "Artis", "artists")
+        self.nav_videos = NavButton("film", "Video", "videos")
+        self.nav_favorites = NavButton("heart", "Favorit", "favorites")
+        self.nav_playlists = NavButton("list-music", "Playlist", "playlists")
+        self.nav_stats = NavButton("chart-column", "Statistik", "stats")
+        self.nav_folders = NavButton("folder", "Folder Library", "folders")
 
         nav_buttons = [
             self.nav_music,
@@ -135,23 +104,22 @@ class Sidebar(QWidget):
         for btn in nav_buttons:
             self.button_group.addButton(btn)
             layout.addWidget(btn)
-            btn.clicked.connect(lambda checked, b=btn: self._on_btn_clicked(b))
+            btn.clicked.connect(lambda _checked, b=btn: self._on_btn_clicked(b))
 
-        # Default pilihan aktif: Musik
         self.nav_music.setChecked(True)
-
         layout.addStretch()
 
-        # Garis pemisah bawah
+        # Garis pemisah tipis
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
-        line.setStyleSheet("background-color: #262C3B; max-height: 1px;")
+        line.setFixedHeight(1)
+        line.setStyleSheet(f"background-color: {COLORS['border']}; border: none;")
         layout.addWidget(line)
 
-        # Info kecil versi/offline di bawah
-        footer_label = QLabel("v0.1 · Offline")
-        footer_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        footer_label.setStyleSheet("color: #555E70; font-size: 11px; padding-top: 8px;")
+        footer_label = QLabel("v1.0 · Offline")
+        footer_label.setProperty("role", "caption")
+        footer_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        footer_label.setContentsMargins(8, 8, 8, 0)
         layout.addWidget(footer_label)
 
     def _on_btn_clicked(self, btn: NavButton) -> None:

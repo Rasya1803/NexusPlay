@@ -1,15 +1,12 @@
-"""NexusPlay — MusicView.
+"""NexusPlay — MusicView (Minimal Dark).
 
-Tampilan daftar seluruh lagu di library dalam bentuk tabel modern.
-Kolom:
+Tampilan daftar seluruh lagu di library dalam bentuk tabel minimalis tanpa zebra:
 1. # (Nomor trek)
-2. Judul Lagu
-3. Artis
-4. Album
-5. Durasi
-
-Klik dua kali (double click) memancarkan sinyal `media_activated(media_dict)`
-sehingga langsung diputar oleh pemutar.
+2. Favorit (ikon hati Lucide)
+3. JUDUL
+4. ARTIS
+5. ALBUM
+6. DURASI
 """
 
 from PySide6.QtCore import Qt, Signal
@@ -28,6 +25,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from nexusplay.ui.theme import COLORS, icon, icon_pixmap, set_button_icon
 from nexusplay.ui.widgets.player_bar import format_ms
 
 
@@ -61,9 +59,9 @@ class MusicView(QWidget):
         title_col = QVBoxLayout()
         title_col.setSpacing(2)
         self.title_label = QLabel("Musik")
-        self.title_label.setStyleSheet("color: #E8EAF0; font-size: 24px; font-weight: bold;")
+        self.title_label.setProperty("role", "title")
         self.subtitle_label = QLabel("0 lagu")
-        self.subtitle_label.setStyleSheet("color: #8B93A7; font-size: 13px;")
+        self.subtitle_label.setProperty("role", "muted")
         title_col.addWidget(self.title_label)
         title_col.addWidget(self.subtitle_label)
 
@@ -78,16 +76,15 @@ class MusicView(QWidget):
         # 1. Halaman Tabel Lagu
         self.table = QTableWidget()
         self.table.setColumnCount(6)
-        self.table.setHorizontalHeaderLabels(["#", "♥", "Judul", "Artis", "Album", "Durasi"])
+        self.table.setHorizontalHeaderLabels(["#", "", "JUDUL", "ARTIS", "ALBUM", "DURASI"])
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setShowGrid(False)
         self.table.verticalHeader().setVisible(False)
-        self.table.setAlternatingRowColors(True)
+        self.table.setAlternatingRowColors(False)
         self.table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
-        # Kolom ukuran proporsional
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
         self.table.setColumnWidth(0, 44)
@@ -98,35 +95,6 @@ class MusicView(QWidget):
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)
         self.table.setColumnWidth(5, 76)
-
-        # Style tabel modern
-        self.table.setStyleSheet("""
-            QTableWidget {
-                background-color: #0B0D12;
-                alternate-background-color: #11141B;
-                color: #E8EAF0;
-                border: none;
-                outline: none;
-            }
-            QTableWidget::item {
-                padding: 10px 8px;
-                border-bottom: 1px solid #1A1F2C;
-            }
-            QTableWidget::item:selected {
-                background-color: #1D2230;
-                color: #FFFFFF;
-                border-left: 2px solid #7C5CFF;
-            }
-            QHeaderView::section {
-                background-color: #0B0D12;
-                color: #8B93A7;
-                font-size: 12px;
-                font-weight: 600;
-                padding: 8px;
-                border: none;
-                border-bottom: 1px solid #262C3B;
-            }
-        """)
 
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._show_context_menu)
@@ -140,33 +108,22 @@ class MusicView(QWidget):
         empty_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         empty_layout.setSpacing(12)
 
-        icon_label = QLabel("🎵")
-        icon_label.setStyleSheet("font-size: 48px; background: transparent;")
+        icon_label = QLabel()
+        icon_label.setPixmap(icon_pixmap("music", COLORS["text-muted"], 40))
         icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         empty_title = QLabel("Belum ada lagu di library")
-        empty_title.setStyleSheet("color: #E8EAF0; font-size: 18px; font-weight: bold;")
+        empty_title.setProperty("role", "heading")
         empty_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         empty_desc = QLabel("Tambahkan folder musik Anda untuk memindai lagu secara otomatis.")
-        empty_desc.setStyleSheet("color: #8B93A7; font-size: 13px; margin-bottom: 8px;")
+        empty_desc.setProperty("role", "muted")
         empty_desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        add_btn = QPushButton("＋ Tambah Folder Musik")
-        add_btn.setStyleSheet("""
-            QPushButton {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #7C5CFF, stop:1 #22D3EE);
-                color: #FFFFFF;
-                border: none;
-                border-radius: 8px;
-                padding: 10px 20px;
-                font-size: 14px;
-                font-weight: 600;
-            }
-            QPushButton:hover {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #9074FF, stop:1 #3EE0F8);
-            }
-        """)
+        add_btn = QPushButton("Tambah Folder Musik")
+        add_btn.setProperty("variant", "primary")
+        add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        set_button_icon(add_btn, "folder-plus", COLORS["on-accent"], 16)
         add_btn.clicked.connect(self.add_folder_requested)
 
         empty_layout.addStretch()
@@ -186,11 +143,14 @@ class MusicView(QWidget):
         self.subtitle_label.setText(f"{count} lagu")
 
         if count == 0:
-            self.stack.setCurrentIndex(1)  # Empty state
+            self.stack.setCurrentIndex(1)
             return
 
-        self.stack.setCurrentIndex(0)      # Tabel
+        self.stack.setCurrentIndex(0)
         self.table.setRowCount(count)
+
+        muted_color = QColor(COLORS["text-muted"])
+        text_color = QColor(COLORS["text"])
 
         for row, t in enumerate(tracks):
             track_num = str(t.get("track_no") or (row + 1))
@@ -202,25 +162,34 @@ class MusicView(QWidget):
 
             item_num = QTableWidgetItem(track_num)
             item_num.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            item_num.setForeground(Qt.GlobalColor.darkGray)
+            item_num.setForeground(muted_color)
 
-            item_fav = QTableWidgetItem("♥" if is_fav else "♡")
-            item_fav.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            item_fav.setForeground(QColor("#FF5C7A") if is_fav else QColor("#555E70"))
-            item_fav.setToolTip("Klik untuk hapus dari Favorit" if is_fav else "Klik untuk tandai Favorit")
+            item_fav = QTableWidgetItem("")
+            item_fav.setIcon(
+                icon(
+                    "heart",
+                    COLORS["text"] if is_fav else COLORS["text-disabled"],
+                    15,
+                    filled=is_fav,
+                )
+            )
+            item_fav.setToolTip(
+                "Klik untuk hapus dari Favorit" if is_fav else "Klik untuk tandai Favorit"
+            )
 
             item_title = QTableWidgetItem(title)
+            item_title.setForeground(text_color)
             item_title.setToolTip(t.get("path", ""))
 
             item_artist = QTableWidgetItem(artist)
-            item_artist.setForeground(Qt.GlobalColor.lightGray)
+            item_artist.setForeground(muted_color)
 
             item_album = QTableWidgetItem(album)
-            item_album.setForeground(Qt.GlobalColor.darkGray)
+            item_album.setForeground(muted_color)
 
             item_dur = QTableWidgetItem(duration)
             item_dur.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            item_dur.setForeground(Qt.GlobalColor.darkGray)
+            item_dur.setForeground(muted_color)
 
             self.table.setItem(row, 0, item_num)
             self.table.setItem(row, 1, item_fav)
@@ -228,7 +197,7 @@ class MusicView(QWidget):
             self.table.setItem(row, 3, item_artist)
             self.table.setItem(row, 4, item_album)
             self.table.setItem(row, 5, item_dur)
-            self.table.setRowHeight(row, 38)
+            self.table.setRowHeight(row, 40)
 
     def set_playlists(self, playlists: list[dict]) -> None:
         """Simpan daftar playlist aktif untuk pilihan menu klik kanan."""
@@ -245,7 +214,6 @@ class MusicView(QWidget):
         if col == 1:
             return
         if 0 <= row < len(self._tracks):
-            # Putar lagu yang diklik dan muat seluruh daftar ke antrean (seperti Spotify)
             self.play_tracks_requested.emit(self._tracks, row)
 
     def _show_context_menu(self, pos) -> None:
@@ -256,40 +224,37 @@ class MusicView(QWidget):
         track = self._tracks[row]
         is_fav = bool(track.get("is_favorite"))
         menu = QMenu(self.window())
-        menu.setStyleSheet("""
-            QMenu {
-                background-color: #1D2230;
-                color: #E8EAF0;
-                border: 1px solid #262C3B;
-                border-radius: 6px;
-                padding: 4px;
-            }
-            QMenu::item {
-                padding: 6px 14px;
-                border-radius: 4px;
-            }
-            QMenu::item:selected {
-                background-color: #7C5CFF;
-                color: #FFFFFF;
-            }
-        """)
 
-        action_play = menu.addAction("▶  Putar Lagu Ini")
-        action_play_next = menu.addAction("⏭  Putar Berikutnya")
-        action_append = menu.addAction("➕  Tambah ke Antrean")
-        action_fav = menu.addAction("♡  Hapus dari Favorit" if is_fav else "♥  Tandai Favorit")
+        action_play = menu.addAction(
+            icon("play", COLORS["text"], 15, filled=True), "Putar Lagu Ini"
+        )
+        action_play_next = menu.addAction(
+            icon("list-start", COLORS["text"], 15), "Putar Berikutnya"
+        )
+        action_append = menu.addAction(
+            icon("list-end", COLORS["text"], 15), "Tambah ke Antrean"
+        )
+        action_fav = menu.addAction(
+            icon("heart", COLORS["text"], 15, filled=not is_fav),
+            "Hapus dari Favorit" if is_fav else "Tandai Favorit",
+        )
 
         menu.addSeparator()
-        playlist_submenu = menu.addMenu("≡  Tambahkan ke Playlist")
-        playlist_submenu.setStyleSheet(menu.styleSheet())
+        playlist_submenu = menu.addMenu(
+            icon("list-music", COLORS["text"], 15), "Tambahkan ke Playlist"
+        )
 
         if self._playlists:
             for pl in self._playlists:
-                action_pl = playlist_submenu.addAction(f"≡  {pl['name']}")
+                action_pl = playlist_submenu.addAction(
+                    icon("list-music", COLORS["text-muted"], 14), pl["name"]
+                )
                 action_pl.setData(pl["id"])
             playlist_submenu.addSeparator()
 
-        action_new_pl = playlist_submenu.addAction("＋  Buat Playlist Baru…")
+        action_new_pl = playlist_submenu.addAction(
+            icon("plus", COLORS["text"], 15), "Buat Playlist Baru…"
+        )
 
         selected = menu.exec(self.table.mapToGlobal(pos))
         if selected == action_play:

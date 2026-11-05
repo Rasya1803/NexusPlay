@@ -1,12 +1,7 @@
-"""NexusPlay — QueuePanel widget.
+"""NexusPlay — QueuePanel widget (Minimal Dark).
 
-Panel sisi kanan untuk menampilkan dan mengatur antrean pemutaran:
-- Lagu yang sedang aktif ("Sedang Diputar")
-- Daftar lagu berikutnya dalam antrean ("Berikutnya")
-- Tombol bersihkan antrean (Clear)
-- Hapus lagu dari antrean
-- Klik dua kali lagu di antrean untuk langsung memutarnya
-- Tombol tutup panel (✕)
+Panel sisi kanan untuk menampilkan dan mengatur antrean pemutaran
+menggunakan token warna netral dan ikon SVG Lucide.
 """
 
 from PySide6.QtCore import Qt, Signal
@@ -23,26 +18,20 @@ from PySide6.QtWidgets import (
 )
 
 from nexusplay.core.queue import PlayQueue
+from nexusplay.ui.theme import COLORS, icon_pixmap, set_button_icon
 from nexusplay.ui.widgets.player_bar import format_ms
 
 
 class QueuePanel(QWidget):
-    """Panel antrean yang dapat disembunyikan/ditampilkan."""
+    """Panel antrean sisi kanan (320 px)."""
 
     close_requested = Signal()
 
     def __init__(self, queue: PlayQueue, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.queue = queue
-
-        self.setFixedWidth(280)
+        self.setFixedWidth(320)
         self.setObjectName("QueuePanel")
-        self.setStyleSheet("""
-            QWidget#QueuePanel {
-                background-color: #151922;
-                border-left: 1px solid #262C3B;
-            }
-        """)
 
         self._build_ui()
         self._connect_signals()
@@ -58,36 +47,18 @@ class QueuePanel(QWidget):
         header_layout.setContentsMargins(0, 0, 0, 0)
 
         title_label = QLabel("Antrean")
-        title_label.setStyleSheet("color: #E8EAF0; font-size: 16px; font-weight: bold;")
+        title_label.setProperty("role", "heading")
 
         self.clear_btn = QPushButton("Bersihkan")
-        self.clear_btn.setStyleSheet("""
-            QPushButton {
-                background: transparent;
-                color: #8B93A7;
-                border: none;
-                font-size: 12px;
-                padding: 4px 6px;
-            }
-            QPushButton:hover {
-                color: #FF5C7A;
-            }
-        """)
+        self.clear_btn.setProperty("variant", "ghost")
+        self.clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.clear_btn.clicked.connect(self.queue.clear)
 
-        self.close_btn = QPushButton("✕")
-        self.close_btn.setFixedSize(24, 24)
-        self.close_btn.setStyleSheet("""
-            QPushButton {
-                background: transparent;
-                color: #8B93A7;
-                border: none;
-                font-size: 14px;
-            }
-            QPushButton:hover {
-                color: #FFFFFF;
-            }
-        """)
+        self.close_btn = QPushButton()
+        self.close_btn.setProperty("variant", "icon")
+        self.close_btn.setFixedSize(28, 28)
+        self.close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        set_button_icon(self.close_btn, "x", COLORS["text-muted"], 16)
         self.close_btn.clicked.connect(self.close_requested)
 
         header_layout.addWidget(title_label)
@@ -98,28 +69,25 @@ class QueuePanel(QWidget):
 
         # ── Bagian: Sedang Diputar ─────────────────────────────
         now_section_lbl = QLabel("SEDANG DIPUTAR")
-        now_section_lbl.setStyleSheet("color: #555E70; font-size: 11px; font-weight: 700; padding-top: 4px;")
+        now_section_lbl.setProperty("role", "caption")
         layout.addWidget(now_section_lbl)
 
-        self.now_playing_card = QWidget()
-        self.now_playing_card.setStyleSheet("""
-            background-color: #1D2230;
-            border-radius: 8px;
-            border: 1px solid #262C3B;
-        """)
+        self.now_playing_card = QFrame()
+        self.now_playing_card.setObjectName("NowPlayingQueueCard")
         now_card_layout = QHBoxLayout(self.now_playing_card)
-        now_card_layout.setContentsMargins(10, 8, 10, 8)
+        now_card_layout.setContentsMargins(12, 10, 12, 10)
         now_card_layout.setSpacing(10)
 
-        self.now_icon = QLabel("🎵")
-        self.now_icon.setStyleSheet("font-size: 18px; background: transparent;")
+        self.now_icon = QLabel()
+        self.now_icon.setFixedSize(20, 20)
+        self.now_icon.setPixmap(icon_pixmap("audio-lines", COLORS["accent"], 18))
 
         now_info = QVBoxLayout()
         now_info.setSpacing(2)
         self.now_title = QLabel("Tidak ada yang diputar")
-        self.now_title.setStyleSheet("color: #E8EAF0; font-size: 13px; font-weight: 600; background: transparent;")
+        self.now_title.setProperty("role", "body-strong")
         self.now_artist = QLabel("—")
-        self.now_artist.setStyleSheet("color: #8B93A7; font-size: 11px; background: transparent;")
+        self.now_artist.setProperty("role", "muted")
         now_info.addWidget(self.now_title)
         now_info.addWidget(self.now_artist)
 
@@ -127,48 +95,27 @@ class QueuePanel(QWidget):
         now_card_layout.addLayout(now_info, 1)
         layout.addWidget(self.now_playing_card)
 
-        # Garis pemisah
+        # Garis pemisah tipis
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
-        line.setStyleSheet("background-color: #262C3B; max-height: 1px;")
+        line.setFixedHeight(1)
+        line.setStyleSheet(f"background-color: {COLORS['border']}; border: none;")
         layout.addWidget(line)
 
         # ── Bagian: Berikutnya ─────────────────────────────────
         next_section_layout = QHBoxLayout()
         next_section_lbl = QLabel("BERIKUTNYA")
-        next_section_lbl.setStyleSheet("color: #555E70; font-size: 11px; font-weight: 700;")
+        next_section_lbl.setProperty("role", "caption")
         self.queue_count_lbl = QLabel("0 lagu")
-        self.queue_count_lbl.setStyleSheet("color: #555E70; font-size: 11px;")
+        self.queue_count_lbl.setProperty("role", "caption")
 
         next_section_layout.addWidget(next_section_lbl)
         next_section_layout.addStretch()
         next_section_layout.addWidget(self.queue_count_lbl)
         layout.addLayout(next_section_layout)
 
-        # Daftar antrean berikutnya
         self.queue_list = QListWidget()
         self.queue_list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self.queue_list.setStyleSheet("""
-            QListWidget {
-                background-color: transparent;
-                border: none;
-                color: #E8EAF0;
-            }
-            QListWidget::item {
-                background-color: transparent;
-                border-radius: 6px;
-                padding: 6px 8px;
-                margin-bottom: 2px;
-            }
-            QListWidget::item:hover {
-                background-color: #1D2230;
-            }
-            QListWidget::item:selected {
-                background-color: #262C3B;
-                color: #FFFFFF;
-                border-left: 2px solid #7C5CFF;
-            }
-        """)
         self.queue_list.itemDoubleClicked.connect(self._on_item_double_clicked)
         layout.addWidget(self.queue_list, 1)
 
@@ -202,7 +149,6 @@ class QueuePanel(QWidget):
             dur = format_ms(t.get("duration_ms") or 0)
 
             item = QListWidgetItem(f"{title}\n{artist} · {dur}")
-            # Simpan indeks riil di play order: curr_idx + 1 + offset
             real_index = curr_idx + 1 + offset
             item.setData(Qt.ItemDataRole.UserRole, real_index)
             self.queue_list.addItem(item)

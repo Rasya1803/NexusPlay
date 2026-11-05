@@ -1,9 +1,9 @@
-"""NexusPlay — Jendela utama aplikasi.
+"""NexusPlay — Jendela utama aplikasi (Minimal Dark).
 
 Kelas `MainWindow` (QMainWindow) merangkai seluruh antarmuka aplikasi:
-- Sidebar navigasi di kiri (Musik, Album, Artis, Video, Playlist, Folder Library)
+- Sidebar navigasi di kiri (Musik, Album, Artis, Video, Favorit, Playlist, Statistik, Folder Library)
 - Area konten utama di tengah (QStackedWidget berisi masing-masing View)
-- Panel antrean kanan yang dapat dibuka/tutup (QueuePanel)
+- Panel antrean & lirik kanan yang dapat dibuka/tutup (QueuePanel & LyricsPanel)
 - Layar pemutar video tertanam (VideoWidget) yang otomatis aktif saat video diputar
 - Bar pemutar bawah (PlayerBar) yang selalu terlihat
 - Integrasi antrean pemutaran (PlayQueue), pemindai library latar belakang (QThread), dan database SQLite
@@ -14,6 +14,7 @@ Aturan arsitektur (PRD 7.3):
 """
 
 from pathlib import Path
+
 from PySide6.QtCore import QPoint, Qt, QTimer
 from PySide6.QtGui import QCursor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
@@ -37,7 +38,12 @@ from nexusplay.db.connection import open_database
 from nexusplay.library.lyrics import load_lyrics_for_media, read_lrc_file
 from nexusplay.library.scanner import LibraryScanner, ScanResult
 from nexusplay.ui.mini_player import MiniPlayer
-from nexusplay.ui.theme import extract_accent_color
+from nexusplay.ui.theme import (
+    COLORS,
+    extract_accent_color,
+    icon_pixmap,
+    set_button_icon,
+)
 from nexusplay.ui.views import (
     AlbumView,
     ArtistView,
@@ -95,12 +101,12 @@ class MainWindow(QMainWindow):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # ── Bagian Atas: Sidebar + Content Stack + Queue Panel ──
+        # ── Bagian Atas: Sidebar + Content Stack + Queue/Lyrics Panel ──
         body_layout = QHBoxLayout()
         body_layout.setContentsMargins(0, 0, 0, 0)
         body_layout.setSpacing(0)
 
-        # 1. Sidebar kiri
+        # 1. Sidebar kiri (220 px)
         self.sidebar = Sidebar(self)
         body_layout.addWidget(self.sidebar)
 
@@ -113,38 +119,20 @@ class MainWindow(QMainWindow):
         # Bar Pencarian Cepat FTS5 (PRD 8.1 & FR-26)
         self.top_search_bar = QWidget()
         self.top_search_bar.setObjectName("TopSearchBar")
-        self.top_search_bar.setStyleSheet("""
-            QWidget#TopSearchBar {
-                background-color: #0B0D12;
-                border-bottom: 1px solid #1D2230;
-            }
-        """)
         search_layout = QHBoxLayout(self.top_search_bar)
-        search_layout.setContentsMargins(24, 12, 24, 10)
+        search_layout.setContentsMargins(24, 10, 24, 10)
         search_layout.setSpacing(10)
 
-        search_icon = QLabel("🔍")
-        search_icon.setStyleSheet("color: #8B93A7; font-size: 14px; background: transparent;")
+        search_icon = QLabel()
+        search_icon.setFixedSize(18, 18)
+        search_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        search_icon.setPixmap(icon_pixmap("search", COLORS["text-muted"], 16))
 
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Cari lagu, artis, album, video… (Ctrl+F)")
         self.search_input.setClearButtonEnabled(True)
         self.search_input.setFixedHeight(36)
-        self.search_input.setMaximumWidth(460)
-        self.search_input.setStyleSheet("""
-            QLineEdit {
-                background-color: #151922;
-                color: #E8EAF0;
-                border: 1px solid #262C3B;
-                border-radius: 18px;
-                padding: 0 16px;
-                font-size: 13px;
-            }
-            QLineEdit:focus {
-                border: 1px solid #7C5CFF;
-                background-color: #1D2230;
-            }
-        """)
+        self.search_input.setMaximumWidth(420)
 
         search_layout.addWidget(search_icon)
         search_layout.addWidget(self.search_input, 1)
@@ -186,23 +174,14 @@ class MainWindow(QMainWindow):
 
         # Bar atas video (Kembali ke library)
         self.video_top_bar = QWidget()
-        self.video_top_bar.setStyleSheet("background-color: #0B0D12; border-bottom: 1px solid #1D2230;")
+        self.video_top_bar.setObjectName("VideoTopBar")
         top_bar_layout = QHBoxLayout(self.video_top_bar)
         top_bar_layout.setContentsMargins(16, 8, 16, 8)
 
-        self.back_to_library_btn = QPushButton("← Kembali ke Daftar Video")
-        self.back_to_library_btn.setStyleSheet("""
-            QPushButton {
-                background: transparent;
-                color: #8B93A7;
-                border: none;
-                font-size: 13px;
-                font-weight: 500;
-            }
-            QPushButton:hover {
-                color: #FFFFFF;
-            }
-        """)
+        self.back_to_library_btn = QPushButton("Kembali ke Daftar Video")
+        self.back_to_library_btn.setProperty("variant", "ghost")
+        self.back_to_library_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        set_button_icon(self.back_to_library_btn, "arrow-left", COLORS["text-muted"], 16)
         self.back_to_library_btn.clicked.connect(self._exit_video_view)
 
         top_bar_layout.addWidget(self.back_to_library_btn)
@@ -217,7 +196,7 @@ class MainWindow(QMainWindow):
         self.now_playing_view = NowPlayingView(self)
         self.content_stack.addWidget(self.now_playing_view)
 
-        # Index 8: Favorites View (Layar Favorit ♥ — FR-25, FR-27)
+        # Index 8: Favorites View (Layar Favorit — FR-25, FR-27)
         self.favorites_view = FavoritesView(self)
         self.content_stack.addWidget(self.favorites_view)
 
@@ -228,7 +207,7 @@ class MainWindow(QMainWindow):
         center_col_layout.addWidget(self.content_stack, 1)
         body_layout.addWidget(center_column, 1)
 
-        # 3. Panel antrean & lirik kanan (QueuePanel & LyricsPanel)
+        # 3. Panel antrean & lirik kanan (QueuePanel & LyricsPanel — 320 px)
         self.lyrics_panel = LyricsPanel(self)
         self.lyrics_panel.hide()
         body_layout.addWidget(self.lyrics_panel)
@@ -239,14 +218,13 @@ class MainWindow(QMainWindow):
 
         root.addLayout(body_layout, 1)
 
-        # ── Bagian Bawah: Bar Pemutar ──────────────────────────
+        # ── Bagian Bawah: Bar Pemutar (80 px) ──────────────────
         self.player_bar = PlayerBar(self.player, self.queue, self)
         root.addWidget(self.player_bar)
 
     # ── Fullscreen & Kontrol Otomatis ──────────────────────────
 
     def _build_fullscreen_helpers(self) -> None:
-        # Pintasan Keyboard (PRD bagian 9)
         QShortcut(QKeySequence(Qt.Key.Key_F), self, self.toggle_fullscreen)
         QShortcut(QKeySequence(Qt.Key.Key_Escape), self, self.exit_fullscreen)
         QShortcut(QKeySequence(Qt.Key.Key_Space), self, self.player.toggle_pause)
@@ -258,31 +236,26 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence(Qt.Key.Key_P), self, self.queue.prev)
         QShortcut(QKeySequence("Ctrl+F"), self, self._focus_search)
 
-        # Timer debounce pencarian cepat FTS5 (FR-26)
         self._search_timer = QTimer(self)
         self._search_timer.setSingleShot(True)
         self._search_timer.setInterval(80)
         self._search_timer.timeout.connect(self._perform_search)
 
-        # Timer pelacak waktu dengar tiap 1 detik (FR-29, FR-30, Bagian 10)
         self._listen_timer = QTimer(self)
         self._listen_timer.setInterval(1000)
         self._listen_timer.timeout.connect(self._on_listen_tick)
         self._listen_timer.start()
 
-        # Timer auto-hide player bar di mode fullscreen
         self._hide_timer = QTimer(self)
         self._hide_timer.setSingleShot(True)
         self._hide_timer.setInterval(CONTROLS_HIDE_MS)
         self._hide_timer.timeout.connect(self._hide_fullscreen_controls)
 
-        # Timer deteksi gerakan mouse
         self._last_cursor_pos = QPoint()
         self._cursor_timer = QTimer(self)
         self._cursor_timer.setInterval(200)
         self._cursor_timer.timeout.connect(self._check_cursor_moved)
 
-        # Timer simpan posisi resume video/audio panjang setiap 5 detik (FR-28)
         self._resume_timer = QTimer(self)
         self._resume_timer.setInterval(5000)
         self._resume_timer.timeout.connect(self._save_current_resume_position)
@@ -291,11 +264,9 @@ class MainWindow(QMainWindow):
     # ── Koneksi Sinyal ─────────────────────────────────────────
 
     def _connect_signals(self) -> None:
-        # Navigasi Sidebar & Pencarian FTS5
         self.sidebar.page_changed.connect(self._on_page_changed)
         self.search_input.textChanged.connect(lambda _text: self._search_timer.start())
 
-        # Aksi Pemutaran Musik & Playlist -> Masuk ke Antrean (M5)
         self.music_view.play_tracks_requested.connect(self._on_play_tracks)
         self.music_view.play_next_requested.connect(self.queue.play_next)
         self.music_view.append_queue_requested.connect(self.queue.append)
@@ -304,7 +275,6 @@ class MainWindow(QMainWindow):
         self.music_view.favorite_toggle_requested.connect(self._on_toggle_favorite)
         self.music_view.add_folder_requested.connect(self._go_to_folders_page)
 
-        # Halaman Favorit (FR-25, FR-27)
         self.favorites_view.play_tracks_requested.connect(self._on_play_tracks)
         self.favorites_view.play_next_requested.connect(self.queue.play_next)
         self.favorites_view.append_queue_requested.connect(self.queue.append)
@@ -312,16 +282,12 @@ class MainWindow(QMainWindow):
         self.favorites_view.new_playlist_with_track.connect(self._create_playlist_with_track)
         self.favorites_view.favorite_toggle_requested.connect(self._on_toggle_favorite)
 
-        # Halaman Statistik & Riwayat (FR-29, FR-30)
         self.stats_view.play_media_requested.connect(self._on_play_single_media)
-
         self.playlist_view.play_tracks_requested.connect(self._on_play_tracks)
 
-        # Antrean (Queue) -> Pemutar Lagu & Otomatis Lanjut (Auto-Advance)
         self.queue.track_changed.connect(self._on_queue_track_changed)
         self.player.track_finished.connect(self._on_track_finished)
 
-        # Panel Antrean, Lirik (FR-62), Layar Sedang Diputar (FR-60), Mini-Player (FR-61), & Favorit
         self.player_bar.queue_toggle_requested.connect(self._toggle_queue_panel)
         self.player_bar.lyrics_toggle_requested.connect(self._toggle_lyrics_panel)
         self.player_bar.now_playing_requested.connect(self._toggle_now_playing_view)
@@ -337,21 +303,17 @@ class MainWindow(QMainWindow):
         self.lyrics_panel.load_lrc_requested.connect(self._load_manual_lrc)
         self.player.position_changed.connect(self.lyrics_panel.update_position)
 
-        # Video
         self.video_view.media_activated.connect(self._play_video_track)
         self.video_view.add_folder_requested.connect(self._go_to_folders_page)
 
-        # Folders View -> Library Actions
         self.folders_view.add_folder_requested.connect(self._add_folder)
         self.folders_view.remove_folder_requested.connect(self._remove_folder)
         self.folders_view.rescan_requested.connect(self._rescan_library)
 
-        # Scanner -> Folders View & Main Window
         self.scanner.progress.connect(self._on_scan_progress)
         self.scanner.finished.connect(self._on_scan_finished)
         self.scanner.failed.connect(self._on_scan_failed)
 
-        # Video & PlayerBar -> Fullscreen
         self.video_widget.double_clicked.connect(self.toggle_fullscreen)
         self.video_widget.mouse_moved.connect(self._on_user_activity)
         self.player_bar.fullscreen_requested.connect(self.toggle_fullscreen)
@@ -362,7 +324,6 @@ class MainWindow(QMainWindow):
         """Muat seluruh data library dari SQLite ke dalam masing-masing view."""
         query = self.search_input.text().strip() if hasattr(self, "search_input") else ""
 
-        # 1. Musik, Video, & Favorit (mendukung filter pencarian FTS5)
         audios = [dict(r) for r in repo.search_media(self.db, query, kind="audio")]
         self.music_view.set_tracks(audios)
 
@@ -372,25 +333,20 @@ class MainWindow(QMainWindow):
         favs = [dict(r) for r in repo.search_media(self.db, query, favorite_only=True)]
         self.favorites_view.set_tracks(favs)
 
-        # 2. Album
         albums = [dict(r) for r in repo.list_albums(self.db)]
         self.album_view.set_albums(albums)
 
-        # 3. Artis
         artists = [dict(r) for r in repo.list_artists(self.db)]
         self.artist_view.set_artists(artists)
 
-        # 4. Playlist
         playlists = [dict(r) for r in repo.list_playlists(self.db)]
         self.music_view.set_playlists(playlists)
         self.favorites_view.set_playlists(playlists)
         self.playlist_view.reload_playlists()
 
-        # 5. Folder
         folders = repo.list_library_folders(self.db)
         self.folders_view.set_folders(folders)
 
-        # 6. Statistik & Riwayat (FR-29, FR-30)
         self._refresh_stats_view()
 
     def _refresh_stats_view(self) -> None:
@@ -421,7 +377,6 @@ class MainWindow(QMainWindow):
         self.video_view.set_videos(videos)
         self.favorites_view.set_tracks(favs)
 
-        # Bila pengguna mengetik di halaman selain Musik/Video/Favorit, alihkan ke Musik
         if query and self._last_active_page not in ("music", "videos", "favorites"):
             self.sidebar.select_page("music")
 
@@ -541,7 +496,9 @@ class MainWindow(QMainWindow):
 
         self._current_listen_ms += 1000
         dur_ms = self.player.duration_ms or int(self._current_media.get("duration_ms") or 0)
-        if not self._current_play_recorded and repo.should_count_play(self._current_listen_ms, dur_ms):
+        if not self._current_play_recorded and repo.should_count_play(
+            self._current_listen_ms, dur_ms
+        ):
             repo.record_play(self.db, int(media_id), self._current_listen_ms)
             self._current_play_recorded = True
             if self.content_stack.currentIndex() == 9:
@@ -553,7 +510,9 @@ class MainWindow(QMainWindow):
             return
         media_id = int(self._current_media["id"])
         dur_ms = self.player.duration_ms or int(self._current_media.get("duration_ms") or 0)
-        if not self._current_play_recorded and repo.should_count_play(self._current_listen_ms, dur_ms):
+        if not self._current_play_recorded and repo.should_count_play(
+            self._current_listen_ms, dur_ms
+        ):
             repo.record_play(self.db, media_id, self._current_listen_ms)
             self._current_play_recorded = True
         self._current_listen_ms = 0
@@ -606,10 +565,13 @@ class MainWindow(QMainWindow):
 
         path = track.get("path")
         if not path or not Path(path).exists():
-            QMessageBox.warning(self, "File tidak ditemukan", f"File audio tidak ditemukan di disk:\n{path}")
+            QMessageBox.warning(
+                self,
+                "File tidak ditemukan",
+                f"File audio tidak ditemukan di disk:\n{path}",
+            )
             return
 
-        # Ambil data terbaru dari DB bila ada (untuk resume_ms audio panjang & is_favorite)
         start_ms = 0
         if track.get("id") is not None:
             fresh = repo.get_media(self.db, int(track["id"]))
@@ -650,7 +612,11 @@ class MainWindow(QMainWindow):
 
         path = video.get("path")
         if not path or not Path(path).exists():
-            QMessageBox.warning(self, "File tidak ditemukan", f"File video tidak ditemukan di disk:\n{path}")
+            QMessageBox.warning(
+                self,
+                "File tidak ditemukan",
+                f"File video tidak ditemukan di disk:\n{path}",
+            )
             return
 
         start_ms = int(video.get("resume_ms") or 0)
@@ -685,7 +651,6 @@ class MainWindow(QMainWindow):
             cover_path=cover_path,
             accent_color=accent,
         )
-        # Beralih ke layar pemutar video (index 6)
         self.content_stack.setCurrentIndex(6)
 
     # ── Slot Playlist Management ───────────────────────────────
@@ -719,13 +684,15 @@ class MainWindow(QMainWindow):
         self._load_library_data()
         self.folders_view.set_scan_state(
             False,
-            f"Folder dihapus dari library ({removed_count} media dibersihkan)."
+            f"Folder dihapus dari library ({removed_count} media dibersihkan).",
         )
 
     def _rescan_library(self) -> None:
         folders = repo.list_library_folders(self.db)
         if not folders:
-            QMessageBox.information(self, "Library Kosong", "Tambahkan folder terlebih dahulu.")
+            QMessageBox.information(
+                self, "Library Kosong", "Tambahkan folder terlebih dahulu."
+            )
             return
         self._start_scan(None)
 
@@ -744,9 +711,13 @@ class MainWindow(QMainWindow):
         )
 
     def _on_scan_finished(self, result: ScanResult) -> None:
-        msg = f"Selesai: +{result.added} baru, {result.updated} diperbarui, {result.removed} dihapus."
+        msg = (
+            f"Selesai: +{result.added} baru, "
+            f"{result.updated} diperbarui, "
+            f"{result.removed} dihapus."
+        )
         if result.errors:
-            msg += f" (⚠ {len(result.errors)} file dilewati)"
+            msg += f" ({len(result.errors)} file dilewati)"
         self.folders_view.set_scan_state(False, msg)
         self._load_library_data()
 
@@ -775,7 +746,6 @@ class MainWindow(QMainWindow):
     def exit_fullscreen(self) -> None:
         """Keluar dari fullscreen kembali ke mode jendela normal."""
         if not self.isFullScreen():
-            # Bila ditekan Esc di layar video non-fullscreen, kembali ke library
             if self.content_stack.currentIndex() == 6:
                 self._exit_video_view()
             return
@@ -803,27 +773,26 @@ class MainWindow(QMainWindow):
     def _check_cursor_moved(self) -> None:
         if not self.isFullScreen():
             return
-        current = QCursor.pos()
-        if current != self._last_cursor_pos:
-            self._last_cursor_pos = current
+        pos = QCursor.pos()
+        if pos != self._last_cursor_pos:
+            self._last_cursor_pos = pos
             self._on_user_activity()
 
     def _hide_fullscreen_controls(self) -> None:
         if not self.isFullScreen():
             return
-        self.player_bar.hide()
-        self.video_widget.setCursor(Qt.CursorShape.BlankCursor)
-
-    # ── Saat Jendela Ditutup ───────────────────────────────────
+        if not self.player_bar.underMouse():
+            self.player_bar.hide()
+            self.video_widget.setCursor(Qt.CursorShape.BlankCursor)
 
     def closeEvent(self, event) -> None:
-        self._listen_timer.stop()
-        self._resume_timer.stop()
+        """Bersihkan thread, simpan posisi resume, dan tutup database saat aplikasi keluar."""
         self._finalize_current_listen()
         self._save_current_resume_position()
-        self.mini_player.blockSignals(True)
+        self._listen_timer.stop()
+        self._resume_timer.stop()
         self.mini_player.close()
-        self.scanner.stop(wait=True)
+        self.scanner.stop()
         self.player.cleanup()
         self.db.close()
         super().closeEvent(event)

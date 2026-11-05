@@ -1,4 +1,4 @@
-"""NexusPlay — FoldersView.
+"""NexusPlay — FoldersView (Minimal Dark).
 
 Tampilan pengelolaan folder library:
 - Daftar folder yang sedang dipantau
@@ -8,10 +8,8 @@ Tampilan pengelolaan folder library:
 - Indikator progres pemindaian
 """
 
-from pathlib import Path
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QFileDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -23,6 +21,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+from nexusplay.ui.theme import COLORS, icon, set_button_icon
 
 
 class FoldersView(QWidget):
@@ -45,9 +45,11 @@ class FoldersView(QWidget):
         title_col = QVBoxLayout()
         title_col.setSpacing(2)
         self.title_label = QLabel("Folder Library")
-        self.title_label.setStyleSheet("color: #E8EAF0; font-size: 24px; font-weight: bold;")
-        self.subtitle_label = QLabel("Kelola direktori musik dan video yang diindeks oleh NexusPlay")
-        self.subtitle_label.setStyleSheet("color: #8B93A7; font-size: 13px;")
+        self.title_label.setProperty("role", "title")
+        self.subtitle_label = QLabel(
+            "Kelola direktori musik dan video yang diindeks oleh NexusPlay"
+        )
+        self.subtitle_label.setProperty("role", "muted")
         title_col.addWidget(self.title_label)
         title_col.addWidget(self.subtitle_label)
         layout.addLayout(title_col)
@@ -56,51 +58,21 @@ class FoldersView(QWidget):
         actions_row = QHBoxLayout()
         actions_row.setSpacing(10)
 
-        self.add_btn = QPushButton("＋ Tambah Folder")
-        self.add_btn.setStyleSheet("""
-            QPushButton {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #7C5CFF, stop:1 #22D3EE);
-                color: #FFFFFF;
-                border: none;
-                border-radius: 8px;
-                padding: 8px 16px;
-                font-weight: 600;
-            }
-            QPushButton:hover {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #9074FF, stop:1 #3EE0F8);
-            }
-        """)
+        self.add_btn = QPushButton("Tambah Folder")
+        self.add_btn.setProperty("variant", "primary")
+        self.add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        set_button_icon(self.add_btn, "folder-plus", COLORS["on-accent"], 16)
         self.add_btn.clicked.connect(self.add_folder_requested)
 
-        self.rescan_btn = QPushButton("↻ Pindai Ulang")
-        self.rescan_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #1D2230;
-                color: #E8EAF0;
-                border: 1px solid #262C3B;
-                border-radius: 8px;
-                padding: 8px 16px;
-            }
-            QPushButton:hover {
-                background-color: #262C3B;
-            }
-        """)
+        self.rescan_btn = QPushButton("Pindai Ulang")
+        self.rescan_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        set_button_icon(self.rescan_btn, "refresh-cw", COLORS["text"], 15)
         self.rescan_btn.clicked.connect(self.rescan_requested)
 
-        self.remove_btn = QPushButton("🗑 Hapus Folder")
-        self.remove_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #1D2230;
-                color: #FF5C7A;
-                border: 1px solid #262C3B;
-                border-radius: 8px;
-                padding: 8px 16px;
-            }
-            QPushButton:hover {
-                background-color: #2E1A22;
-                border-color: #FF5C7A;
-            }
-        """)
+        self.remove_btn = QPushButton("Hapus Folder")
+        self.remove_btn.setProperty("variant", "danger")
+        self.remove_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        set_button_icon(self.remove_btn, "trash-2", COLORS["text-muted"], 15)
         self.remove_btn.clicked.connect(self._on_remove_clicked)
 
         actions_row.addWidget(self.add_btn)
@@ -113,59 +85,40 @@ class FoldersView(QWidget):
         self.progress_bar = QProgressBar()
         self.progress_bar.setFixedHeight(6)
         self.progress_bar.setTextVisible(False)
-        self.progress_bar.setStyleSheet("""
-            QProgressBar {
-                background-color: #1D2230;
-                border: none;
-                border-radius: 3px;
-            }
-            QProgressBar::chunk {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #7C5CFF, stop:1 #22D3EE);
-                border-radius: 3px;
-            }
-        """)
         self.progress_bar.hide()
         layout.addWidget(self.progress_bar)
 
         self.status_label = QLabel("")
-        self.status_label.setStyleSheet("color: #8B93A7; font-size: 13px;")
+        self.status_label.setProperty("role", "muted")
         layout.addWidget(self.status_label)
 
-        # Daftar Folder
+        # Daftar Folder di dalam Kartu permukaan
+        list_card = QFrame()
+        list_card.setObjectName("StatCard")
+        list_card_layout = QVBoxLayout(list_card)
+        list_card_layout.setContentsMargins(8, 8, 8, 8)
+
         self.folder_list = QListWidget()
-        self.folder_list.setStyleSheet("""
-            QListWidget {
-                background-color: #151922;
-                border: 1px solid #262C3B;
-                border-radius: 10px;
-                padding: 8px;
-                color: #E8EAF0;
-            }
-            QListWidget::item {
-                padding: 10px 12px;
-                border-radius: 6px;
-                margin-bottom: 4px;
-            }
-            QListWidget::item:hover {
-                background-color: #1D2230;
-            }
-            QListWidget::item:selected {
-                background-color: #262C3B;
-                color: #FFFFFF;
-                border-left: 3px solid #7C5CFF;
-            }
-        """)
-        layout.addWidget(self.folder_list, 1)
+        list_card_layout.addWidget(self.folder_list)
+        layout.addWidget(list_card, 1)
 
     def set_folders(self, folders: list[str]) -> None:
-        """Tampilkan daftar folder."""
+        """Tampilkan daftar folder dengan ikon Lucide."""
         self.folder_list.clear()
+        folder_icon = icon("folder", COLORS["text-muted"], 16)
         for f in folders:
-            item = QListWidgetItem(f"📁   {f}")
+            item = QListWidgetItem(f)
+            item.setIcon(folder_icon)
             item.setData(Qt.ItemDataRole.UserRole, f)
             self.folder_list.addItem(item)
 
-    def set_scan_state(self, is_scanning: bool, message: str = "", progress: int = 0, total: int = 0) -> None:
+    def set_scan_state(
+        self,
+        is_scanning: bool,
+        message: str = "",
+        progress: int = 0,
+        total: int = 0,
+    ) -> None:
         """Update tampilan saat sedang atau selesai memindai."""
         self.add_btn.setEnabled(not is_scanning)
         self.rescan_btn.setEnabled(not is_scanning)
@@ -186,13 +139,20 @@ class FoldersView(QWidget):
     def _on_remove_clicked(self) -> None:
         curr = self.folder_list.currentItem()
         if not curr:
-            QMessageBox.information(self.window(), "Pilih Folder", "Pilih folder yang ingin dihapus dari daftar terlebih dahulu.")
+            QMessageBox.information(
+                self.window(),
+                "Pilih Folder",
+                "Pilih folder yang ingin dihapus dari daftar terlebih dahulu.",
+            )
             return
         folder_path = curr.data(Qt.ItemDataRole.UserRole)
         confirm = QMessageBox.question(
             self.window(),
             "Konfirmasi Hapus Folder",
-            f"Hapus folder ini dari library NexusPlay?\n\n{folder_path}\n\n(Catatan: File fisik di komputer Anda TIDAK akan terhapus).",
+            (
+                f"Hapus folder ini dari library NexusPlay?\n\n{folder_path}\n\n"
+                "(Catatan: File fisik di komputer Anda TIDAK akan terhapus)."
+            ),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if confirm == QMessageBox.StandardButton.Yes:

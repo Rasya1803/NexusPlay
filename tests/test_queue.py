@@ -9,17 +9,17 @@ Menguji seluruh logika:
 """
 
 import pytest
-from PySide6.QtCore import QCoreApplication
+from PySide6.QtGui import QGuiApplication
 
 from nexusplay.core.queue import PlayQueue
 
 
 @pytest.fixture(scope="session")
 def qapp():
-    """QCoreApplication fixture untuk pengujian sinyal Qt."""
-    app = QCoreApplication.instance()
+    """QGuiApplication fixture untuk pengujian sinyal dan komponen Qt."""
+    app = QGuiApplication.instance()
     if app is None:
-        app = QCoreApplication([])
+        app = QGuiApplication([])
     return app
 
 
